@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')  # backend non interattivo: plt.show() bloccherebbe lo script
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -94,7 +96,8 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
         plt.ylabel('KL Divergence Loss')
         plt.legend()
         plt.grid(True)
-        plt.show()
+        plt.savefig('phase1_curves.png')
+        plt.close()
 
         #early stopping and saving of the best model
         if best_val_error > val_loss:
@@ -158,7 +161,8 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
         plt.ylabel('KL Divergence Loss')
         plt.legend()
         plt.grid(True)
-        plt.show()
+        plt.savefig('phase2_curves.png')
+        plt.close()
 
         #early stopping and saving of the best model
         if best_val_error > val_loss:
