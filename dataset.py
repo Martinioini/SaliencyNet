@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import Compose, Resize, ToTensor, Normalize
 from torchvision.transforms import functional as TF
 
-
+#method to prepare the folders with train/val/test
 def prepare_paths(train_dir, map_dir, fix_dir):
     #Prepare training data paths
     image_paths_train = []
@@ -38,7 +38,8 @@ def prepare_paths(train_dir, map_dir, fix_dir):
     print(f"Train size: {len(map_paths_train)}")
     print(f"Train size: {len(fix_paths_train)}")
 
-    #Prepare val/test (from the held-out 'val' split, NOT from 'train')
+    #Prepare val/test; notice test is from part of the dataset val
+    #because the original test does not have labels
     image_paths_val_full = []
     map_paths_val_full = []
     fix_paths_val_full = []
@@ -82,7 +83,7 @@ def prepare_paths(train_dir, map_dir, fix_dir):
         "test": (image_paths_test, map_paths_test, fix_paths_test),
     }
 
-
+#method to load fixation maps
 def load_fixation_map(mat_path, size):
     """SALICON fixations are stored as .mat files (gaze of ~60 observers,
     each with fixation coordinates [x, y]). Build the binary fixation map
@@ -117,12 +118,14 @@ class ImageDataset(Dataset):
     self.fix_paths = fix_paths
     self.image_size = image_size
 
+    #resize the images and apply normalization to standard values
     self.image_transform = Compose([
         Resize(self.image_size),
         ToTensor(),
         Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
+    #same transformation for maps, but no normalization
     self.map_transform = Compose([
         Resize(self.image_size),
         ToTensor()
@@ -143,14 +146,17 @@ class ImageDataset(Dataset):
     sal = Image.open(map_path).convert("L")
     fix = load_fixation_map(fix_path, self.image_size)  # binary map already at image_size
 
+    #data augmentation, applied to both the image, saliency and fixation
     if self.train:
 
+        #Flipping of the image
         r = random.random()
         if r < 0.5:
             image = TF.hflip(image)
             sal = TF.hflip(sal)
             fix = TF.hflip(fix)
 
+        #Random rotation. Interpolation is used, for fixations nearest is needed, otherwise most of the values are lost
         r = random.random()
         if r < 0.3:
             angle = random.uniform(-10, 10)
@@ -158,6 +164,7 @@ class ImageDataset(Dataset):
             sal = TF.rotate(sal, angle, interpolation=TF.InterpolationMode.BILINEAR)
             fix = TF.rotate(fix, angle, interpolation=TF.InterpolationMode.NEAREST)
 
+        #Random change in brightness, contrast and saturation
         r = random.random()
         if r < 0.5:
             image = TF.adjust_brightness(image, random.uniform(0.8, 1.2))

@@ -1,7 +1,7 @@
 import torch.nn.functional as F
 from torch import nn
 
-
+#KL divergence for the encoder/decoder module
 class SaliencyKLLoss(nn.Module):
     def __init__(self, eps=1e-8):
         super().__init__()

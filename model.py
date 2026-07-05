@@ -2,7 +2,7 @@ import torch
 import torchvision.models as models
 from torch import nn
 
-
+#encoder built from a pretrained ResNet18, the last two layers are dropped, and the intermediate are used for skip connections
 class encoder(nn.Module):
 
   def __init__(self):
@@ -30,7 +30,9 @@ class encoder(nn.Module):
     c4 = self.layer4(c3)
     return c1, c2, c3, c4
 
-
+#Decoder: increases size gradually, concatenating the skip connections (U-Net style)
+#Uses interpolated upsampling instead of strided convolutions to avoid introducing visual artifacts
+#exploits of dropout and batchnorm2d.
 class decoder(nn.Module):
 
   def __init__(self):

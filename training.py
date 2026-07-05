@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 
-# Training function
+# Training function, if phase1 the encoder is frozen
 def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encoder_frozen=False):
     if encoder_frozen:
         encoder.eval()
@@ -31,7 +31,7 @@ def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encode
     losses = np.mean(losses)
     return losses
 
-
+#testing function, gradients are not kept and both models are in evak mode
 def test_epoch(encoder, decoder, device, dataloader, loss_fn):
     encoder.eval()
     decoder.eval()
@@ -51,10 +51,9 @@ def test_epoch(encoder, decoder, device, dataloader, loss_fn):
 
     return np.mean(val_losses)
 
-
+#Phase 1: The encder is frozen, only a few epochs of training are done
 def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim1,
                train_loss_history, val_loss_history, num_epochs=5, patience=3):
-    #First train with frozen backbone
     bad = 0
     best_val_error = float('inf')
 
@@ -63,7 +62,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
 
     for epoch in range(num_epochs):
         print('EPOCH %d/%d' % (epoch + 1, num_epochs))
-        ### Training (use the training function)
+        ### Training
         train_loss = train_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -74,7 +73,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
             encoder_frozen=True)
         print(f'TRAIN - EPOCH {epoch+1}/{num_epochs} - loss: {train_loss}')
 
-        ### Validation  (use the testing function)
+        ### Validation
         val_loss = test_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -97,6 +96,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
         plt.grid(True)
         plt.show()
 
+        #early stopping and saving of the best model
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
@@ -106,12 +106,13 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
             if bad == patience:
                 break
 
-
+#Phase 2: The whole network is used
 def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim, scheduler,
                train_loss_history, val_loss_history, num_epochs=50, patience=3):
     bad = 0
     best_val_error = float('inf')
 
+    #load the best model from phase 1
     model = torch.load('phase1.pt', map_location=device, weights_only=False)
     image_encoder.load_state_dict(model['encoder'])
     image_decoder.load_state_dict(model['decoder'])
@@ -159,6 +160,7 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
         plt.grid(True)
         plt.show()
 
+        #early stopping and saving of the best model
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0

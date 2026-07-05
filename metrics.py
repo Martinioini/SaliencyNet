@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 
 
+#Pearson correlation between pred and target, per image
 def cc_metric(pred, target, eps=1e-8):
 
     B = pred.size(0)
@@ -19,6 +20,7 @@ def cc_metric(pred, target, eps=1e-8):
     return (num / den)  # per-sample, mediato fuori
 
 
+#Histogram intersection between the two distributions, per image
 def sim_metric(pred, ground_truth, eps=1e-8):
 
     pred = pred.float()
@@ -40,6 +42,7 @@ def sim_metric(pred, ground_truth, eps=1e-8):
     return sim_per_image.mean()
 
 
+#KL divergence, takes raw logits and does its own log_softmax
 def kl_metric(pred, ground_truth, eps=1e-8):
 
     pred = pred.float()
@@ -55,6 +58,7 @@ def kl_metric(pred, ground_truth, eps=1e-8):
     return F.kl_div(log_pred, targ, reduction='batchmean')
 
 
+#Normalized Scanpath Saliency, uses the fixation map instead of the continuous one
 def nss_metric(pred, fixation_map, eps=1e-8):
 
     pred = pred.float()
