@@ -106,69 +106,69 @@ def load_fixation_map(mat_path, size):
 
 class ImageDataset(Dataset):
 
-  def __init__(self, image_paths, map_paths, fix_paths, image_size=(256, 256), train=False):
+    def __init__(self, image_paths, map_paths, fix_paths, image_size=(256, 256), train=False):
 
-    self.train = train
+        self.train = train
 
-    if len(image_paths) != len(map_paths):
-      raise ValueError("Number of images and maps must be the same")
+        if len(image_paths) != len(map_paths):
+            raise ValueError("Number of images and maps must be the same")
 
-    self.image_paths = image_paths
-    self.map_paths = map_paths
-    self.fix_paths = fix_paths
-    self.image_size = image_size
+        self.image_paths = image_paths
+        self.map_paths = map_paths
+        self.fix_paths = fix_paths
+        self.image_size = image_size
 
-    #resize the images and apply normalization to standard values
-    self.image_transform = Compose([
-        Resize(self.image_size),
-        ToTensor(),
-        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+        #resize the images and apply normalization to standard values
+        self.image_transform = Compose([
+            Resize(self.image_size),
+            ToTensor(),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
 
-    #same transformation for maps, but no normalization
-    self.map_transform = Compose([
-        Resize(self.image_size),
-        ToTensor()
-    ])
+        #same transformation for maps, but no normalization
+        self.map_transform = Compose([
+            Resize(self.image_size),
+            ToTensor()
+        ])
 
-    # fix is already built at image_size (coordinates scaled), so only ToTensor
-    self.fix_transform = ToTensor()
+        # fix is already built at image_size (coordinates scaled), so only ToTensor
+        self.fix_transform = ToTensor()
 
-  def __len__(self):
-    return len(self.image_paths)
+    def __len__(self):
+        return len(self.image_paths)
 
-  def __getitem__(self, index):
-    image_path = self.image_paths[index]
-    map_path = self.map_paths[index]
-    fix_path = self.fix_paths[index]
+    def __getitem__(self, index):
+        image_path = self.image_paths[index]
+        map_path = self.map_paths[index]
+        fix_path = self.fix_paths[index]
 
-    image = Image.open(image_path).convert("RGB")
-    sal = Image.open(map_path).convert("L")
-    fix = load_fixation_map(fix_path, self.image_size)  # binary map already at image_size
+        image = Image.open(image_path).convert("RGB")
+        sal = Image.open(map_path).convert("L")
+        fix = load_fixation_map(fix_path, self.image_size)  # binary map already at image_size
 
-    #data augmentation, applied to both the image, saliency and fixation
-    if self.train:
+        #data augmentation, applied to both the image, saliency and fixation
+        if self.train:
 
-        #Flipping of the image
-        r = random.random()
-        if r < 0.5:
-            image = TF.hflip(image)
-            sal = TF.hflip(sal)
-            fix = TF.hflip(fix)
+            #Flipping of the image
+            r = random.random()
+            if r < 0.5:
+                image = TF.hflip(image)
+                sal = TF.hflip(sal)
+                fix = TF.hflip(fix)
 
-        #Random rotation. Interpolation is used, for fixations nearest is needed, otherwise most of the values are lost
-        r = random.random()
-        if r < 0.3:
-            angle = random.uniform(-10, 10)
-            image = TF.rotate(image, angle, interpolation=TF.InterpolationMode.BILINEAR)
-            sal = TF.rotate(sal, angle, interpolation=TF.InterpolationMode.BILINEAR)
-            fix = TF.rotate(fix, angle, interpolation=TF.InterpolationMode.NEAREST)
+            #Random rotation. Interpolation is used, for fixations nearest is needed, otherwise most of the values are lost
+            r = random.random()
+            if r < 0.3:
+                angle = random.uniform(-10, 10)
+                image = TF.rotate(image, angle, interpolation=TF.InterpolationMode.BILINEAR)
+                sal = TF.rotate(sal, angle, interpolation=TF.InterpolationMode.BILINEAR)
+                fix = TF.rotate(fix, angle, interpolation=TF.InterpolationMode.NEAREST)
 
-        #Random change in brightness, contrast and saturation
-        r = random.random()
-        if r < 0.5:
-            image = TF.adjust_brightness(image, random.uniform(0.8, 1.2))
-            image = TF.adjust_contrast(image,   random.uniform(0.8, 1.2))
-            image = TF.adjust_saturation(image, random.uniform(0.8, 1.2))
+            #Random change in brightness, contrast and saturation
+            r = random.random()
+            if r < 0.5:
+                image = TF.adjust_brightness(image, random.uniform(0.8, 1.2))
+                image = TF.adjust_contrast(image,   random.uniform(0.8, 1.2))
+                image = TF.adjust_saturation(image, random.uniform(0.8, 1.2))
 
-    return(self.image_transform(image), self.map_transform(sal), self.fix_transform(fix))
+        return(self.image_transform(image), self.map_transform(sal), self.fix_transform(fix))

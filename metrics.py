@@ -94,25 +94,24 @@ def evaluate_loader(image_encoder, image_decoder, device, loader, label):
 
         for image_batch, image_map_batch, image_fix_batch in loader:
 
-                image_batch = image_batch.to(device)
-                image_map_batch = image_map_batch.to(device)
-                image_fix_batch = image_fix_batch.to(device)
+            image_batch = image_batch.to(device)
+            image_map_batch = image_map_batch.to(device)
+            image_fix_batch = image_fix_batch.to(device)
 
-                c1, c2, c3, c4 = image_encoder(image_batch)
-                decoded_data = image_decoder(c1, c2, c3, c4)
+            c1, c2, c3, c4 = image_encoder(image_batch)
+            decoded_data = image_decoder(c1, c2, c3, c4)
 
-                B = image_batch.shape[0]
-                #PER ALESSANDRO: LE NOSTRE FUNZIONI DI METRICHE PRENDONO COME ARGOMENTI I VALORI GIA NORMALIZZATI, PERCIO HO DOVUTO NORMALIZZARLI
-                #USANDO QUESTE 3 RIGHE DI CODICE (ECCEZIONE PER KL)
-                flattened_decoded_data = decoded_data.view(B, -1)
-                log_decoded_data = F.softmax(flattened_decoded_data, dim=1)
-                normalized_decoded_data = log_decoded_data.view_as(decoded_data)
-                cc_norm_decoded_data = normalized_decoded_data / (normalized_decoded_data.amax(dim=(2, 3), keepdim=True) + 1e-8)
+            B = image_batch.shape[0]
+            # I logit del decoder diventano una distribuzione su tutti i pixel col softmax
+            # (scelta coerente con la SaliencyKLLoss usata in training).
+            # SIM/CC/NSS ri-normalizzano internamente (somma / z-score, invarianti ad affini),
+            # quindi basta passare questa mappa. KL prende invece i logit grezzi.
+            prob_decoded_data = F.softmax(decoded_data.view(B, -1), dim=1).view_as(decoded_data)
 
-                sim_metrics.append(sim_metric(normalized_decoded_data, image_map_batch))
-                cc_metrics.append(cc_metric(cc_norm_decoded_data, image_map_batch).mean())
-                nss_metrics.append(nss_metric(normalized_decoded_data, image_fix_batch))
-                kl_metrics.append(kl_metric(decoded_data, image_map_batch))
+            sim_metrics.append(sim_metric(prob_decoded_data, image_map_batch))
+            cc_metrics.append(cc_metric(prob_decoded_data, image_map_batch).mean())
+            nss_metrics.append(nss_metric(prob_decoded_data, image_fix_batch))
+            kl_metrics.append(kl_metric(decoded_data, image_map_batch))
 
     print(f'{label} METRICS: \nSIM: {torch.stack(sim_metrics).mean()}\n CC: {torch.stack(cc_metrics).mean()}\n NSS: {torch.stack(nss_metrics).mean()}\n KL: {torch.stack(kl_metrics).mean()}')
 

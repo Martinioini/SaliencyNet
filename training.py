@@ -1,5 +1,3 @@
-from xml.parsers.expat import model
-
 import matplotlib
 
 from models import decoder, encoder
@@ -189,19 +187,16 @@ def discriminator_training(encoder, decoder, discriminator, device, dataloader, 
     discriminator.train()
     losses = []
 
-    for image_batch, image_map_batch in dataloader:
+    for image_batch, image_map_batch, image_fix_batch in dataloader:
 
         image_batch = image_batch.to(device)
         image_map_batch = image_map_batch.to(device)
 
-
         c1, c2, c3, c4 = encoder(image_batch)
         fake_image_batch = decoder(c1, c2, c3, c4).detach()
-        
-        
+
         real_sample = discriminator(image_batch, image_map_batch)    
         fake_data = discriminator(image_batch, fake_image_batch)
-
 
         loss = loss_fn(real_sample, torch.ones_like(real_sample)) + loss_fn(fake_data, torch.zeros_like(fake_data))
 
@@ -213,31 +208,83 @@ def discriminator_training(encoder, decoder, discriminator, device, dataloader, 
     losses = np.mean(losses)
     return losses
 
+def adversarial_training(encoder, decoder, discriminator, device, dataloader, loss_fn, optimizer_generator, optimizer_discriminator, alpha=0.005):
+    
+    cc = []
+
+    encoder.eval()
+    decoder.eval()
+    discriminator.train()
+
+    for image_batch, image_map_batch, image_fix_batch in dataloader:
+        
+        image_batch = image_batch.to(device)
+        image_map_batch = image_map_batch.to(device)
+
+        c1, c2, c3, c4 = encoder(image_batch)
+        fake_image_batch = decoder(c1, c2, c3, c4).detach()
+
+        real_sample = discriminator(image_batch, image_map_batch)    
+        fake_data = discriminator(image_batch, fake_image_batch)
+
+        loss = loss_fn(real_sample, torch.ones_like(real_sample)) + loss_fn(fake_data, torch.zeros_like(fake_data))
+
+        optimizer_discriminator.zero_grad()
+        loss.backward()
+        optimizer_discriminator.step()
+
+        c1, c2, c3, c4 = encoder(image_batch)
+        fake_image_batch = decoder(c1, c2, c3, c4)
+
+        B = fake_image_batch.size(0)
+        pred = F.softmax(fake_image_batch.view(B, -1), dim=1).view_as(fake_image_batch)   #Same map as eval loop
+        cc_score = cc_metric(pred, image_map_batch).mean()   
+        cc.append(cc_score)
+
+        real_sample = discriminator(image_batch, image_map_batch)    
+        fake_data = discriminator(image_batch, fake_image_batch)
+
+        loss_generator = alpha * loss_fn(fake_image_batch, image_map_batch) + loss_fn(fake_data, torch.ones_like(fake_data))
+
+        optimizer_generator.zero_grad()
+        loss_generator.backward()
+        optimizer_generator.step()
+
+    return cc.mean()
+
+
 
 def discriminator_testing(encoder, decoder, discriminator, device, dataloader, loss_fn):
     encoder.eval()
     decoder.eval()
     discriminator.eval()
     val_losses = []
+    true_positive = 0
+    false_positive = 0
+    total = 0
 
     with torch.no_grad():
 
-        for image_batch, image_map_batch in dataloader:
+        for image_batch, image_map_batch, image_fix_batch in dataloader:
 
-                image_batch = image_batch.to(device)
-                image_map_batch = image_map_batch.to(device)
+            image_batch = image_batch.to(device)
+            image_map_batch = image_map_batch.to(device)
 
+            c1, c2, c3, c4 = encoder(image_batch)
+            fake_image_batch = decoder(c1, c2, c3, c4).detach()
 
-                c1, c2, c3, c4 = encoder(image_batch)
-                fake_image_batch = decoder(c1, c2, c3, c4).detach()
+            real_sample = discriminator(image_batch, image_map_batch)    
+            fake_data = discriminator(image_batch, fake_image_batch)
+            
+            true_positive += (real_sample > 0.5).sum().item()
+            false_positive += (fake_data < 0.5).sum().item()
+            total += real_sample.size(0)
 
-                real_sample = discriminator(image_batch, image_map_batch)    
-                fake_data = discriminator(image_batch, fake_image_batch)
+            loss = loss_fn(real_sample, torch.ones_like(real_sample)) + loss_fn(fake_data, torch.zeros_like(fake_data))
 
+            val_losses.append(loss.detach().cpu().numpy())
 
-                loss = loss_fn(real_sample, torch.ones_like(real_sample)) + loss_fn(fake_data, torch.zeros_like(fake_data))
-
-                val_losses.append(loss.detach().cpu().numpy())
+    print(f"True positive accuracy = {true_positive / total} False positive: {false_positive/ total}")
 
     return np.mean(val_losses)
 
@@ -273,8 +320,7 @@ def run_phase3(image_encoder, image_decoder, discriminator, device, train_loader
             discriminator=discriminator,
             device=device,
             dataloader=val_loader,
-            loss_fn=loss_fn,
-            optimizer=optim)
+            loss_fn=loss_fn)
 
         # Print Validation curves
         print(f'VALIDATION - EPOCH {epoch+1}/{num_epochs} - loss: {val_loss}\n')
