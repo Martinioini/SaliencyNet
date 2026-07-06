@@ -1,4 +1,8 @@
+from xml.parsers.expat import model
+
 import matplotlib
+
+from models import decoder, encoder
 matplotlib.use('Agg')  # backend non interattivo: plt.show() bloccherebbe lo script
 import matplotlib.pyplot as plt
 import numpy as np
@@ -53,7 +57,7 @@ def test_epoch(encoder, decoder, device, dataloader, loss_fn):
 
     return np.mean(val_losses)
 
-#Phase 1: The encder is frozen, only a few epochs of training are done
+#Phase 1: The encoder is frozen, only a few epochs of training are done
 def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim1,
                train_loss_history, val_loss_history, num_epochs=5, patience=3):
     bad = 0
@@ -169,6 +173,130 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
             best_val_error = val_loss
             bad = 0
             torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict()}, 'best.pt')
+        else:
+            bad += 1
+            if bad == patience:
+                break
+
+
+def discriminator_training(encoder, decoder, discriminator, device, dataloader, loss_fn, optimizer):
+    for param in encoder.parameters():
+        param.requires_grad = False
+    for param in decoder.parameters():
+        param.requires_grad = False
+    encoder.eval()
+    decoder.eval()
+    discriminator.train()
+    losses = []
+
+    for image_batch, image_map_batch in dataloader:
+
+        image_batch = image_batch.to(device)
+        image_map_batch = image_map_batch.to(device)
+
+
+        c1, c2, c3, c4 = encoder(image_batch)
+        fake_image_batch = decoder(c1, c2, c3, c4).detach()
+        
+        
+        real_sample = discriminator(image_batch, image_map_batch)    
+        fake_data = discriminator(image_batch, fake_image_batch)
+
+
+        loss = loss_fn(real_sample, torch.ones_like(real_sample)) + loss_fn(fake_data, torch.zeros_like(fake_data))
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        losses.append(loss.detach().cpu().numpy())
+    losses = np.mean(losses)
+    return losses
+
+
+def discriminator_testing(encoder, decoder, discriminator, device, dataloader, loss_fn):
+    encoder.eval()
+    decoder.eval()
+    discriminator.eval()
+    val_losses = []
+
+    with torch.no_grad():
+
+        for image_batch, image_map_batch in dataloader:
+
+                image_batch = image_batch.to(device)
+                image_map_batch = image_map_batch.to(device)
+
+
+                c1, c2, c3, c4 = encoder(image_batch)
+                fake_image_batch = decoder(c1, c2, c3, c4).detach()
+
+                real_sample = discriminator(image_batch, image_map_batch)    
+                fake_data = discriminator(image_batch, fake_image_batch)
+
+
+                loss = loss_fn(real_sample, torch.ones_like(real_sample)) + loss_fn(fake_data, torch.zeros_like(fake_data))
+
+                val_losses.append(loss.detach().cpu().numpy())
+
+    return np.mean(val_losses)
+
+
+
+
+#Phase 3: The generator is frozen, discriminator is trained for a few epochs
+def run_phase3(image_encoder, image_decoder, discriminator, device, train_loader, val_loader, loss_fn, optim,
+               train_loss_history, val_loss_history, num_epochs=5, patience=3):
+    bad = 0
+    best_val_error = float('inf')
+
+    for p in image_encoder.parameters():
+        p.requires_grad = False
+
+    for epoch in range(num_epochs):
+        print('EPOCH %d/%d' % (epoch + 1, num_epochs))
+        ### Training
+        train_loss = discriminator_training(
+            encoder=image_encoder,
+            decoder=image_decoder,
+            discriminator=discriminator,
+            device=device,
+            dataloader=train_loader,
+            loss_fn=loss_fn,
+            optimizer=optim)
+        print(f'TRAIN - EPOCH {epoch+1}/{num_epochs} - loss: {train_loss}')
+
+        ### Validation
+        val_loss = discriminator_testing(
+            encoder=image_encoder,
+            decoder=image_decoder,
+            discriminator=discriminator,
+            device=device,
+            dataloader=val_loader,
+            loss_fn=loss_fn,
+            optimizer=optim)
+
+        # Print Validation curves
+        print(f'VALIDATION - EPOCH {epoch+1}/{num_epochs} - loss: {val_loss}\n')
+        train_loss_history.append(train_loss)
+        val_loss_history.append(val_loss)
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(train_loss_history, label='Train Loss', color='blue')
+        plt.plot(val_loss_history, label='Validation Loss', color='orange')
+        plt.title('Learning Curves')
+        plt.xlabel('Epoch')
+        plt.ylabel('BCE Divergence Loss')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig('phase3_curves.png')
+        plt.close()
+
+        #early stopping and saving of the best model
+        if best_val_error > val_loss:
+            best_val_error = val_loss
+            bad = 0
+            torch.save({"discriminator" : discriminator.state_dict()}, 'phase3.pt')
         else:
             bad += 1
             if bad == patience:

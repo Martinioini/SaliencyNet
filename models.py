@@ -88,3 +88,90 @@ class decoder(nn.Module):
     x = self.conv5(x)
 
     return x
+
+
+class discriminator(nn.Module):
+
+  def __init__(self):
+    super().__init__()
+
+    self.dropout = nn.Dropout2d(0.2)
+    
+    self.conv1_1 = nn.Conv2d(in_channels=4, out_channels=3, kernel_size=1, stride=1, padding=1)
+    self.bn1_1 = nn.BatchNorm2d(3)
+
+    self.conv1_2 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1)
+    self.bn1_2 = nn.BatchNorm2d(32)
+
+    self.pooling = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+
+    self.conv2_1 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+    self.bn2_1 = nn.BatchNorm2d(64)
+
+    self.conv2_2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
+    self.bn2_2 = nn.BatchNorm2d(64)
+
+    self.conv3_1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
+    self.bn3_1 = nn.BatchNorm2d(64)
+
+    self.conv3_2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
+    self.bn3_2 = nn.BatchNorm2d(64)
+
+    self.FFNN4 = nn.Linear(in_features=64 * 32 * 32, out_features=100)
+    self.FFNN5 = nn.Linear(in_features=100, out_features=2)
+    self.FFNN6 = nn.Linear(in_features=2, out_features=1)
+
+def forward(self, image, map):
+
+    x = torch.cat((image, map), dim=1)
+
+    x = self.conv1_1(x)
+    x = self.bn1_1(x)
+    x = self.dropout(x)
+    x = torch.relu(x)
+
+    x = self.conv1_2(x)
+    x = self.bn1_2(x)
+    x = self.dropout(x)
+    x = torch.relu(x)
+
+    x = self.pooling(x)
+
+    x = self.conv2_1(x)
+    x = self.bn2_1(x)
+    x = self.dropout(x)
+    x = torch.relu(x)
+
+    x = self.conv2_2(x)
+    x = self.bn2_2(x)
+    x = self.dropout(x)
+    x = torch.relu(x)
+
+    x = self.pooling(x)
+
+    x = self.conv3_1(x)
+    x = self.bn3_1(x)
+    x = self.dropout(x)
+    x = torch.relu(x)
+    
+    x = self.conv3_2(x)
+    x = self.bn3_2(x)
+    x = self.dropout(x)
+    x = torch.relu(x)
+
+    x = self.pooling(x)
+
+    x = torch.flatten(x, start_dim=1)
+    x = self.FFNN4(x)
+    x = self.dropout(x)
+    x = torch.tanh(x)
+
+    x = self.FFNN5(x)
+    x = self.dropout(x)
+    x = torch.tanh(x)
+    
+    x = self.FFNN6(x)
+    x = self.dropout(x)
+    x = torch.sigmoid(x)
+
+    return x

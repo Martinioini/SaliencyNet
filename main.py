@@ -6,9 +6,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from dataset import prepare_paths, ImageDataset
-from model import encoder, decoder
+from models import discriminator, encoder, decoder
 from losses import SaliencyKLLoss
-from training import run_phase1, run_phase2
+from training import run_phase1, run_phase2, run_phase3
 from metrics import evaluate_loader, compare_to_center_baseline
 
 # --- config (stessi valori usati nel notebook) ---
@@ -27,6 +27,12 @@ PHASE2_DECODER_LR = 1e-4
 PHASE2_WEIGHT_DECAY = 1e-5
 PHASE2_EPOCHS = 50
 PHASE2_PATIENCE = 3
+
+PHASE3_DISCRIMINATOR_LR = 1e-4
+PHASE3_WEIGHT_DECAY = 1e-5
+PHASE3_EPOCHS = 5
+PHASE3_PATIENCE = 3
+
 SCHEDULER_FACTOR = 0.5
 SCHEDULER_PATIENCE = 3
 SCHEDULER_MIN_LR = 1e-7
@@ -59,10 +65,13 @@ def main():
 
     image_encoder = encoder()
     image_decoder = decoder()
+    discr = discriminator()
     image_encoder.to(device)
     image_decoder.to(device)
+    discr.to(device)
 
     loss_fn = SaliencyKLLoss()
+    BCE_loss_fn = torch.nn.BCELoss()
 
     train_loss_history = []
     val_loss_history = []
@@ -92,7 +101,23 @@ def main():
     run_phase2(
         image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim, scheduler,
         train_loss_history, val_loss_history,
-        num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
+        num_epochs=PHASE3_EPOCHS, patience=PHASE3_PATIENCE)
+    
+        # --- Phase 3: train discriminator ---
+    params_to_optimize = [
+        {'params': discr.parameters(), 'lr': PHASE3_DISCRIMINATOR_LR}
+    ]
+    optim = torch.optim.Adam(params_to_optimize, weight_decay=PHASE3_WEIGHT_DECAY)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optim, mode='min', factor=SCHEDULER_FACTOR, patience=SCHEDULER_PATIENCE, min_lr=SCHEDULER_MIN_LR)
+    image_encoder.to(device)
+    image_decoder.to(device)
+
+    run_phase3(
+        image_encoder, image_decoder, discr, device, train_loader, val_loader, BCE_loss_fn, optim,
+        train_loss_history, val_loss_history,
+        num_epochs=PHASE3_EPOCHS, patience=PHASE3_PATIENCE)
+    
 
     # --- Metrics on best.pt ---
     ckpt = torch.load('best.pt', map_location=device, weights_only=False)
