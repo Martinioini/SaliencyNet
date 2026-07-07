@@ -18,7 +18,7 @@ def prepare_paths(train_dir, map_dir, fix_dir):
 
     map_dict = {}
     fix_dict = {}
-
+    
     for f in os.listdir(map_dir / 'train'):
         stem = Path(f).stem
         map_dict[stem] = f
