@@ -1,7 +1,20 @@
+# Dataset e output
 datasets/
 models/
 Phase 1 plots/
 Phase 2 plots/
+Phase 3 plots/
+
+# Cache Python / Jupyter
 __pycache__/
+.ipynb_checkpoints/
+
+# Impostazioni locali Claude Code
+.claude/settings.local.json
+.claude/*.tmp.*
+
 # Modelli / checkpoint
 *.pt
+
+# Plot generati
+center_baseline.png
