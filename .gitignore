@@ -1,4 +1,7 @@
 datasets/
-
+models/
+Phase 1 plots/
+Phase 2 plots/
+__pycache__/
 # Modelli / checkpoint
 *.pt
