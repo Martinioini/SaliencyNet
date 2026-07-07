@@ -1,9 +1,7 @@
 # Dataset e output
 datasets/
 models/
-Phase 1 plots/
-Phase 2 plots/
-Phase 3 plots/
+plots/
 
 # Cache Python / Jupyter
 __pycache__/
@@ -15,6 +13,3 @@ __pycache__/
 
 # Modelli / checkpoint
 *.pt
-
-# Plot generati
-center_baseline.png

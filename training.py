@@ -68,7 +68,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
 
     saved_models = Path.cwd() / "models"
     saved_models.mkdir(parents=True, exist_ok=True)
-    saved_plots = Path.cwd() / "Phase 1 plots"
+    saved_plots = Path.cwd() / "plots"
     saved_plots.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(num_epochs):
@@ -137,7 +137,7 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
         p.requires_grad = True
     saved_models = Path.cwd() / "models"
     saved_models.mkdir(parents=True, exist_ok=True)
-    saved_plots = Path.cwd() / "Phase 2 plots"
+    saved_plots = Path.cwd() / "plots"
     saved_plots.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(num_epochs):
@@ -269,7 +269,7 @@ def run_phase3(image_encoder, image_decoder, discriminator, device, train_loader
         p.requires_grad = False
     saved_models = Path.cwd() / "models"
     saved_models.mkdir(parents=True, exist_ok=True)
-    saved_plots = Path.cwd() / "Phase 3 plots"
+    saved_plots = Path.cwd() / "plots"
     saved_plots.mkdir(parents=True, exist_ok=True)
 
 
@@ -432,7 +432,7 @@ def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader
         p.requires_grad = False
     saved_models = Path.cwd() / "models"
     saved_models.mkdir(parents=True, exist_ok=True)
-    saved_plots = Path.cwd() / "Phase 4 plots"
+    saved_plots = Path.cwd() / "plots"
     saved_plots.mkdir(parents=True, exist_ok=True)
 
 
