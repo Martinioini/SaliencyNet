@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
+from pathlib import Path
 
 
 #Pearson correlation between pred and target, per image
@@ -160,7 +161,9 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
         ax[i, 1].imshow(sals[i, 0].cpu(), cmap='hot'); ax[i, 1].set_title("GT"); ax[i, 1].axis('off')
         ax[i, 2].imshow(pred[i, 0].cpu(), cmap='hot'); ax[i, 2].set_title("Pred"); ax[i, 2].axis('off')
         ax[i, 3].imshow(fix[i, 0].cpu(), cmap='hot'); ax[i, 3].set_title("Fixation"); ax[i, 3].axis('off')
-    plt.tight_layout(); plt.savefig('center_baseline.png'); plt.close()
+    saved_plots = Path.cwd() / "plots"
+    saved_plots.mkdir(parents=True, exist_ok=True)
+    plt.tight_layout(); plt.savefig(saved_plots / 'center_baseline.png'); plt.close()
 
     print("\n>>> STEP 2+3: metriche su val set completo")
 
