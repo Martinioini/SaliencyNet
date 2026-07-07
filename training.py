@@ -207,7 +207,7 @@ def discriminator_training(encoder, decoder, discriminator, device, dataloader, 
         image_map_batch = image_map_batch.to(device)
 
         c1, c2, c3, c4 = encoder(image_batch)
-        fake_image_batch = decoder(c1, c2, c3, c4).detach()
+        fake_image_batch = torch.sigmoid(decoder(c1, c2, c3, c4).detach())
 
         real_sample = discriminator(image_batch, image_map_batch)    
         fake_data = discriminator(image_batch, fake_image_batch)
@@ -239,7 +239,7 @@ def discriminator_testing(encoder, decoder, discriminator, device, dataloader, l
             image_map_batch = image_map_batch.to(device)
 
             c1, c2, c3, c4 = encoder(image_batch)
-            fake_image_batch = decoder(c1, c2, c3, c4).detach()
+            fake_image_batch = torch.sigmoid((decoder(c1, c2, c3, c4)).detach())
 
             real_sample = discriminator(image_batch, image_map_batch)    
             fake_data = discriminator(image_batch, fake_image_batch)

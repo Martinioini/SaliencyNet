@@ -25,9 +25,9 @@ PHASE2_ENCODER_LR = 1e-5
 PHASE2_DECODER_LR = 1e-4
 PHASE2_WEIGHT_DECAY = 1e-5
 PHASE2_EPOCHS = 50
-PHASE2_PATIENCE = 3
+PHASE2_PATIENCE = 7
 
-PHASE3_DISCRIMINATOR_LR = 1e-4
+PHASE3_DISCRIMINATOR_LR = 1e-5
 PHASE3_WEIGHT_DECAY = 1e-5
 PHASE3_EPOCHS = 4
 PHASE3_PATIENCE = 3
@@ -112,6 +112,10 @@ def main():
             num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
 
     # --- Phase 3: train discriminator ---
+    ckpt = torch.load('models/phase2.pt', map_location=device, weights_only=False)
+    image_encoder.load_state_dict(ckpt['encoder'])
+    image_decoder.load_state_dict(ckpt['decoder'])
+
     params_to_optimize = [
         {'params': discr.parameters(), 'lr': PHASE3_DISCRIMINATOR_LR}
     ]
@@ -128,8 +132,8 @@ def main():
         num_epochs=PHASE3_EPOCHS, patience=PHASE3_PATIENCE)
 
 
-    # --- Metrics on best.pt ---
-    ckpt = torch.load('best.pt', map_location=device, weights_only=False)
+    # --- Metrics on best model (best encoder/decoder = phase2) ---
+    ckpt = torch.load(Path.cwd() / 'models' / 'phase2.pt', map_location=device, weights_only=False)
     image_encoder.load_state_dict(ckpt['encoder'])
     image_decoder.load_state_dict(ckpt['decoder'])
     image_encoder.eval()
