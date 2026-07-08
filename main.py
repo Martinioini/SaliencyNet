@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from dataset import prepare_paths, ImageDataset
 from models import discriminator, encoder, decoder
 from losses import SaliencyKLLoss
-from training import run_phase1, run_phase2, run_phase3
+from training import run_phase1, run_phase2, run_phase3, run_phase4
 from metrics import evaluate_loader, compare_to_center_baseline
 
 ROOT = './datasets/salicon'
@@ -31,6 +31,12 @@ PHASE3_DISCRIMINATOR_LR = 1e-5
 PHASE3_WEIGHT_DECAY = 1e-5
 PHASE3_EPOCHS = 4
 PHASE3_PATIENCE = 3
+
+PHASE4_DISCRIMINATOR_LR = 1e-5
+PHASE4_WEIGHT_DECAY = 1e-5
+PHASE4_EPOCHS = 50
+PHASE4_PATIENCE = 4
+
 
 SCHEDULER_FACTOR = 0.5
 SCHEDULER_PATIENCE = 3
@@ -130,6 +136,37 @@ def main():
         image_encoder, image_decoder, discr, device, train_loader, val_loader, BCE_loss_fn, optim,
         train_loss_history, val_loss_history,
         num_epochs=PHASE3_EPOCHS, patience=PHASE3_PATIENCE)
+
+    
+    # --- Phase 4: Adversarial training ---
+    ckpt = torch.load('models/phase3.pt', map_location=device, weights_only=False)
+    discr.load_state_dict(ckpt['discriminator'])
+
+    params_disc = [{'params': discr.parameters(), 'lr': PHASE4_DISCRIMINATOR_LR}]
+    optim_discriminator = torch.optim.Adam(params_disc, weight_decay=PHASE4_WEIGHT_DECAY)
+
+
+    params_gen = [
+        {'params': image_encoder.parameters(), 'lr': PHASE2_ENCODER_LR},
+        {'params': image_decoder.parameters(), 'lr': PHASE2_DECODER_LR},
+    ]
+    optim_generator = torch.optim.Adam(params_gen, weight_decay=PHASE2_WEIGHT_DECAY)
+
+    train_loss_history_generator = []
+    train_loss_history_discriminator = []
+    val_loss_history_generator = []
+    val_loss_history_discriminator = []
+
+    image_encoder.to(device)
+    image_decoder.to(device)
+    discr.to(device)
+
+    print("Phase 4")
+    run_phase4(
+        image_encoder, image_decoder, discr, device, train_loader, val_loader, BCE_loss_fn, optim_generator, optim_discriminator, 
+        train_loss_history_generator, train_loss_history_discriminator, val_loss_history_generator, val_loss_history_discriminator, 
+        num_epochs=PHASE4_EPOCHS, patience=PHASE4_PATIENCE
+    )
 
 
     # --- Metrics on best model (best encoder/decoder = phase2) ---

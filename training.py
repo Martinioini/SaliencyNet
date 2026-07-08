@@ -19,7 +19,6 @@ def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encode
     losses = []
 
     for image_batch, image_map_batch, image_fix_batch in dataloader:
-
         image_batch = image_batch.to(device)
         image_map_batch = image_map_batch.to(device)
 
@@ -207,7 +206,8 @@ def discriminator_training(encoder, decoder, discriminator, device, dataloader, 
         image_map_batch = image_map_batch.to(device)
 
         c1, c2, c3, c4 = encoder(image_batch)
-        fake_image_batch = torch.sigmoid(decoder(c1, c2, c3, c4).detach())
+        logits = decoder(c1, c2, c3, c4).detach()
+        fake_image_batch = torch.sigmoid(logits)
 
         real_sample = discriminator(image_batch, image_map_batch)    
         fake_data = discriminator(image_batch, fake_image_batch)
@@ -239,7 +239,8 @@ def discriminator_testing(encoder, decoder, discriminator, device, dataloader, l
             image_map_batch = image_map_batch.to(device)
 
             c1, c2, c3, c4 = encoder(image_batch)
-            fake_image_batch = torch.sigmoid((decoder(c1, c2, c3, c4)).detach())
+            logits = decoder(c1, c2, c3, c4).detach()
+            fake_image_batch = torch.sigmoid(logits)
 
             real_sample = discriminator(image_batch, image_map_batch)    
             fake_data = discriminator(image_batch, fake_image_batch)
@@ -347,7 +348,8 @@ def adversarial_training(encoder, decoder, discriminator, device, dataloader, lo
 
         c1, c2, c3, c4 = encoder(image_batch)
         #added sigmoid here
-        fake_image_batch = torch.sigmoid(decoder(c1, c2, c3, c4).detach())
+        logits = decoder(c1, c2, c3, c4).detach()
+        fake_image_batch = torch.sigmoid(logits)
 
         real_sample = discriminator(image_batch, image_map_batch)    
         fake_data = discriminator(image_batch, fake_image_batch)
@@ -361,7 +363,8 @@ def adversarial_training(encoder, decoder, discriminator, device, dataloader, lo
         #Generator step: discriminator is frozen, generator is trained to fool the discriminator
         c1, c2, c3, c4 = encoder(image_batch)
         #added sigmoid here
-        fake_image_batch = torch.sigmoid(decoder(c1, c2, c3, c4))
+        logits = decoder(c1, c2, c3, c4)
+        fake_image_batch = torch.sigmoid(logits)
 
         fake_data = discriminator(image_batch, fake_image_batch)
         loss_generator = alpha * loss_fn(fake_image_batch, image_map_batch) + loss_fn(fake_data, torch.ones_like(fake_data))
@@ -369,7 +372,7 @@ def adversarial_training(encoder, decoder, discriminator, device, dataloader, lo
         optimizer_generator.zero_grad()
         loss_generator.backward()
         #when this code will run we should see a number > 0, otherwise there is probably a 'detach' somwehere preventing the gradients to flow back.
-        print(encoder.layer4[0].conv1.weight.grad.norm())
+        #print(encoder.layer4[0].conv1.weight.grad.norm())
         optimizer_generator.step()
         losses_generator.append(loss_generator.detach().cpu().numpy())
         
@@ -396,7 +399,8 @@ def adversarial_testing(encoder, decoder, discriminator, device, dataloader, los
             image_map_batch = image_map_batch.to(device)
 
             c1, c2, c3, c4 = encoder(image_batch)
-            fake_image_batch = torch.sigmoid(decoder(c1, c2, c3, c4)).detach()
+            logits = decoder(c1, c2, c3, c4).detach()
+            fake_image_batch = torch.sigmoid(logits)
 
             real_sample = discriminator(image_batch, image_map_batch)    
             fake_data = discriminator(image_batch, fake_image_batch)
@@ -405,7 +409,7 @@ def adversarial_testing(encoder, decoder, discriminator, device, dataloader, los
             losses_discriminator.append(loss_discriminator.detach().cpu().numpy())
 
             cc_score = cc_metric(fake_image_batch, image_map_batch).mean()   
-            cc.append(cc_score)
+            cc.append(cc_score.item())
 
             loss_generator = alpha * loss_fn(fake_image_batch, image_map_batch) + loss_fn(fake_data, torch.ones_like(fake_data))
 
@@ -414,11 +418,10 @@ def adversarial_testing(encoder, decoder, discriminator, device, dataloader, los
     return np.mean(cc), np.mean(losses_generator), np.mean(losses_discriminator)
 
 #Phase 4: Both the generator and discriminator are trained in an adversarial way, for a few epochs
-# Needs work, only added both optim instead of one in the firm, changed the name of the saved model and the plot folder.
 def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader, val_loader, loss_fn, optim_generator, optim_discriminator,
                train_loss_history_generator, train_loss_history_discriminator, val_loss_history_generator, val_loss_history_discriminator, num_epochs=5, patience=3):
     bad = 0
-    best_val_error = float('inf')
+    best_cc_error = float('-inf')
 
     for p in image_encoder.parameters():
         p.requires_grad = False
@@ -471,11 +474,11 @@ def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader
         plt.close()
 
         #early stopping and saving of the best model
-        if best_val_error > val_loss_generator:
-            best_val_error = val_loss_generator
+        if val_cc > best_cc_error:
+            best_cc_error = val_cc
             bad = 0
             path_model = saved_models / "phase4.pt"
-            torch.save({"discriminator" : discriminator.state_dict()}, path_model)
+            torch.save({"discriminator" : discriminator.state_dict(), "encoder": image_encoder.state_dict(), "decoder": image_decoder.state_dict()}, path_model)
         else:
             bad += 1
             if bad == patience:
