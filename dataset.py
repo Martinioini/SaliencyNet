@@ -34,9 +34,9 @@ def prepare_paths(train_dir, map_dir, fix_dir):
             map_paths_train.append(map_dir / 'train' / map_dict[stem])
             fix_paths_train.append(fix_dir / 'train' / fix_dict[stem])
 
-    print(f"Train size: {len(image_paths_train)}")
-    print(f"Train size: {len(map_paths_train)}")
-    print(f"Train size: {len(fix_paths_train)}")
+    print(f"Train size of images: {len(image_paths_train)}")
+    print(f"Train size of maps: {len(map_paths_train)}")
+    print(f"Train size of fixations: {len(fix_paths_train)}")
 
     #Prepare val/test; notice test is from part of the dataset val
     #because the original test does not have labels

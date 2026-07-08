@@ -383,6 +383,9 @@ def adversarial_testing(encoder, decoder, discriminator, device, dataloader, los
     cc = []
     losses_discriminator = []
     losses_generator = []
+    true_positive = 0
+    false_positive = 0
+    total = 0
     for p in encoder.parameters():       p.requires_grad = False
     for p in decoder.parameters():       p.requires_grad = False
     for p in discriminator.parameters(): p.requires_grad = False
@@ -408,6 +411,10 @@ def adversarial_testing(encoder, decoder, discriminator, device, dataloader, los
             loss_discriminator = loss_fn(real_sample, torch.ones_like(real_sample)) + loss_fn(fake_data, torch.zeros_like(fake_data))
             losses_discriminator.append(loss_discriminator.detach().cpu().numpy())
 
+            true_positive += (real_sample > 0.5).sum().item()
+            false_positive += (fake_data < 0.5).sum().item()
+            total += real_sample.size(0)
+
             cc_score = cc_metric(fake_image_batch, image_map_batch).mean()   
             cc.append(cc_score.item())
 
@@ -415,6 +422,7 @@ def adversarial_testing(encoder, decoder, discriminator, device, dataloader, los
 
             losses_generator.append(loss_generator.detach().cpu().numpy())
 
+    print(f"True positive accuracy = {true_positive / total} False positive: {false_positive/ total}")
     return np.mean(cc), np.mean(losses_generator), np.mean(losses_discriminator)
 
 #Phase 4: Both the generator and discriminator are trained in an adversarial way, for a few epochs
@@ -423,8 +431,6 @@ def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader
     bad = 0
     best_cc_error = float('-inf')
 
-    for p in image_encoder.parameters():
-        p.requires_grad = False
     saved_models = Path.cwd() / "models"
     saved_models.mkdir(parents=True, exist_ok=True)
     saved_plots = Path.cwd() / "plots"
