@@ -3,7 +3,7 @@ matplotlib.use('Agg')  # backend non interattivo: plt.show() bloccherebbe lo scr
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-
+from pathlib import Path
 
 # Training function, if phase1 the encoder is frozen
 def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encoder_frozen=False):
@@ -59,6 +59,9 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
     bad = 0
     best_val_error = float('inf')
 
+    models_dir = Path('models')
+    models_dir.mkdir(parents=True, exist_ok=True)
+
     for p in image_encoder.parameters():
         p.requires_grad = False
 
@@ -103,7 +106,8 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
-            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict()}, 'phase1.pt')
+            models_path = models_dir / 'phase1.pt'
+            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict()}, models_path)
         else:
             bad += 1
             if bad == patience:
@@ -115,8 +119,11 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
     bad = 0
     best_val_error = float('inf')
 
+    models_dir = Path('models')
+    models_dir.mkdir(parents=True, exist_ok=True)
+
     #load the best model from phase 1
-    model = torch.load('phase1.pt', map_location=device, weights_only=False)
+    model = torch.load(models_dir / 'phase1.pt', map_location=device, weights_only=False)
     image_encoder.load_state_dict(model['encoder'])
     image_decoder.load_state_dict(model['decoder'])
     image_encoder.train()
@@ -168,7 +175,8 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
-            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict()}, 'best.pt')
+            models_path = models_dir / 'phase2.pt'
+            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict()}, models_path)
         else:
             bad += 1
             if bad == patience:
