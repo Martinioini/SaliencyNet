@@ -1,17 +1,20 @@
 import torch
 
-ckpt = torch.load('best.pt', map_location='cpu', weights_only=False)
-enc = ckpt['encoder']   # lo state_dict dell'encoder
+ckpt = torch.load('models/best.pt', map_location='cpu', weights_only=False)
+att = ckpt['attention']   # ora l'attention è un modulo separato
 
-# 1. c'è un gamma? (quasi certamente no in quella run)
-gamma_keys = [k for k in enc if 'gamma' in k]
-print("gamma presente:", gamma_keys if gamma_keys else "NO")
+print("chiavi attention:", list(att.keys()))
+print()
 
-# 2. che chiavi ha l'attention?
-att_keys = [k for k in enc if 'att' in k]
-print("chiavi attention:", att_keys)
+# IL numero che conta: gamma. Se ~0, l'attention è spenta.
+if 'gamma' in att:
+    print(f">>> GAMMA = {att['gamma'].item():.6f}")
+    print("    (se ~0 l'attention e' spenta; se cresciuto, e' attiva)\n")
 
-# 3. i pesi dell'attention: quanto sono lontani dall'inizializzazione?
-for k in att_keys:
-    w = enc[k]
-    print(f"{k:35s}  mean={w.mean().item():+.4f}  std={w.std().item():.4f}  absmax={w.abs().max().item():.4f}")
+# statistiche dei pesi dell'attention
+for k in att:
+    w = att[k]
+    if w.numel() > 1:
+        print(f"{k:30s}  std={w.std().item():.4f}  absmax={w.abs().max().item():.4f}")
+    else:
+        print(f"{k:30s}  value={w.item():+.6f}")

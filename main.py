@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from dataset import prepare_paths, ImageDataset
-from models import encoder, decoder
+from models import encoder, decoder, attention
 from losses import SaliencyKLLoss
 from training import run_phase1, run_phase2
 from metrics import evaluate_loader, compare_to_center_baseline
@@ -24,6 +24,7 @@ PHASE1_PATIENCE = 3
 
 PHASE2_ENCODER_LR = 1e-5
 PHASE2_DECODER_LR = 1e-4
+PHASE2_ATTENTION_LR = 1e-3
 PHASE2_WEIGHT_DECAY = 1e-5
 PHASE2_EPOCHS = 50
 PHASE2_PATIENCE = 3
@@ -59,8 +60,10 @@ def main():
 
     image_encoder = encoder()
     image_decoder = decoder()
+    image_attention = attention()
     image_encoder.to(device)
     image_decoder.to(device)
+    image_attention.to(device)
 
     loss_fn = SaliencyKLLoss()
 
@@ -74,7 +77,7 @@ def main():
     optim1 = torch.optim.Adam(params_to_optimize1, weight_decay=PHASE1_WEIGHT_DECAY)
 
     run_phase1(
-        image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim1,
+        image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim1,
         train_loss_history, val_loss_history,
         num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
 
@@ -82,6 +85,7 @@ def main():
     params_to_optimize = [
         {'params': image_encoder.parameters(), 'lr': PHASE2_ENCODER_LR},
         {'params': image_decoder.parameters(), 'lr': PHASE2_DECODER_LR},
+        {'params': image_attention.parameters(), 'lr': PHASE2_ATTENTION_LR},
     ]
     optim = torch.optim.Adam(params_to_optimize, weight_decay=PHASE2_WEIGHT_DECAY)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -90,21 +94,23 @@ def main():
     image_decoder.to(device)
 
     run_phase2(
-        image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim, scheduler,
+        image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim, scheduler,
         train_loss_history, val_loss_history,
         num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
 
     # --- Metrics on best.pt ---
-    ckpt = torch.load('best.pt', map_location=device, weights_only=False)
+    ckpt = torch.load('models/best.pt', map_location=device, weights_only=False)
     image_encoder.load_state_dict(ckpt['encoder'])
     image_decoder.load_state_dict(ckpt['decoder'])
+    image_attention.load_state_dict(ckpt['attention'])
     image_encoder.eval()
     image_decoder.eval()
+    image_attention.eval()
 
-    evaluate_loader(image_encoder, image_decoder, device, val_loader, "VALIDATION")
-    evaluate_loader(image_encoder, image_decoder, device, test_loader, "TEST")
+    evaluate_loader(image_encoder, image_decoder, image_attention, device, val_loader, "VALIDATION")
+    evaluate_loader(image_encoder, image_decoder, image_attention, device, test_loader, "TEST")
 
-    compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
+    compare_to_center_baseline(image_encoder, image_decoder, image_attention, device, val_loader)
 
 
 if __name__ == "__main__":

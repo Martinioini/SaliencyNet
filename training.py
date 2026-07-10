@@ -6,11 +6,13 @@ import torch
 from pathlib import Path
 
 # Training function, if phase1 the encoder is frozen
-def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encoder_frozen=False):
+def train_epoch(encoder, decoder, attention, device, dataloader, loss_fn, optimizer, encoder_frozen=False):
     if encoder_frozen:
         encoder.eval()
+        attention.eval()
     else :
         encoder.train()
+        attention.train()
     decoder.train()
     losses = []
 
@@ -20,8 +22,8 @@ def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encode
         image_map_batch = image_map_batch.to(device)
 
         c1, c2, c3, c4 = encoder(image_batch)
-
-        decoded_data = decoder(c1, c2, c3, c4)
+        c4_att = attention(c4)
+        decoded_data = decoder(c1, c2, c3, c4_att)
 
         loss = loss_fn(decoded_data, image_map_batch)
 
@@ -34,9 +36,11 @@ def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encode
     return losses
 
 #testing function, gradients are not kept and both models are in evak mode
-def test_epoch(encoder, decoder, device, dataloader, loss_fn):
+def test_epoch(encoder, decoder, attention, device, dataloader, loss_fn):
     encoder.eval()
     decoder.eval()
+    attention.eval()
+
     val_losses = []
 
     with torch.no_grad():
@@ -46,7 +50,8 @@ def test_epoch(encoder, decoder, device, dataloader, loss_fn):
             image_map_batch = image_map_batch.to(device)
 
             c1, c2, c3, c4 = encoder(image_batch)
-            decoded_data = decoder(c1, c2, c3, c4)
+            c4_att = attention(c4)
+            decoded_data = decoder(c1, c2, c3, c4_att)
 
             loss = loss_fn(decoded_data, image_map_batch)
             val_losses.append(loss.item())
@@ -54,13 +59,14 @@ def test_epoch(encoder, decoder, device, dataloader, loss_fn):
     return np.mean(val_losses)
 
 #Phase 1: The encder is frozen, only a few epochs of training are done
-def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim1,
+def run_phase1(image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim1,
                train_loss_history, val_loss_history, num_epochs=5, patience=3):
     bad = 0
     best_val_error = float('inf')
 
     models_dir = Path('models')
     models_dir.mkdir(parents=True, exist_ok=True)
+    Path('plots').mkdir(parents=True, exist_ok=True)
 
     for p in image_encoder.parameters():
         p.requires_grad = False
@@ -71,6 +77,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
         train_loss = train_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
+            attention=image_attention,
             device=device,
             dataloader=train_loader,
             loss_fn=loss_fn,
@@ -82,6 +89,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
         val_loss = test_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
+            attention=image_attention,
             device=device,
             dataloader=val_loader,
             loss_fn=loss_fn)
@@ -99,7 +107,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
         plt.ylabel('KL Divergence Loss')
         plt.legend()
         plt.grid(True)
-        plt.savefig('phase1_curves.png')
+        plt.savefig('plots/phase1_curves.png')
         plt.close()
 
         #early stopping and saving of the best model
@@ -107,27 +115,24 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
             best_val_error = val_loss
             bad = 0
             models_path = models_dir / 'phase1.pt'
-            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict()}, models_path)
+            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict(), "attention" : image_attention.state_dict()}, models_path)
         else:
             bad += 1
             if bad == patience:
                 break
 
 #Phase 2: The whole network is used
-def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim, scheduler,
+def run_phase2(image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim, scheduler,
                train_loss_history, val_loss_history, num_epochs=50, patience=3):
     bad = 0
     best_val_error = float('inf')
-
     models_dir = Path('models')
     models_dir.mkdir(parents=True, exist_ok=True)
+    Path('plots').mkdir(parents=True, exist_ok=True)
 
-    #load the best model from phase 1
-    model = torch.load(models_dir / 'phase1.pt', map_location=device, weights_only=False)
-    image_encoder.load_state_dict(model['encoder'])
-    image_decoder.load_state_dict(model['decoder'])
     image_encoder.train()
     image_decoder.train()
+    image_attention.train()
 
     #unfreeze the encoder and train on the whole net
     for p in image_encoder.parameters():
@@ -139,6 +144,7 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
         train_loss = train_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
+            attention=image_attention,
             device=device,
             dataloader=train_loader,
             loss_fn=loss_fn,
@@ -149,6 +155,7 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
         val_loss = test_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
+            attention=image_attention,
             device=device,
             dataloader=val_loader,
             loss_fn=loss_fn)
@@ -168,15 +175,15 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
         plt.ylabel('KL Divergence Loss')
         plt.legend()
         plt.grid(True)
-        plt.savefig('phase2_curves.png')
+        plt.savefig('plots/phase2_curves.png')
         plt.close()
 
         #early stopping and saving of the best model
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
-            models_path = models_dir / 'phase2.pt'
-            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict()}, models_path)
+            models_path = models_dir / 'best.pt'
+            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict(), "attention" : image_attention.state_dict()}, models_path)
         else:
             bad += 1
             if bad == patience:

@@ -19,7 +19,6 @@ class encoder(nn.Module):
     self.layer2 = backbone.layer2
     self.layer3 = backbone.layer3
     self.layer4 = backbone.layer4
-    self.att = nn.MultiheadAttention(embed_dim=512, num_heads=8, batch_first=True)  # self attention layer
 
     #ignore last 2 layers of resnet
 
@@ -28,15 +27,24 @@ class encoder(nn.Module):
     c1 = self.layer1(x)
     c2 = self.layer2(c1)
     c3 = self.layer3(c2)
-
-    #self attention
     c4 = self.layer4(c3)
-    B, C, H, W = c4.shape
-    temp = c4.flatten(2).transpose(1, 2)
-    attention_output, _ = self.att(temp, temp, temp)
-    c4_att = attention_output.transpose(1, 2).reshape(B, C, H, W)
+    return c1, c2, c3, c4
+  
+class attention(nn.Module):
+    
+    def __init__(self):
+        super().__init__()
+        self.att = nn.MultiheadAttention(embed_dim=512, num_heads=8, batch_first=True)
+        self.gamma = nn.Parameter(torch.tensor([0.1]))
 
-    return c1, c2, c3, c4 + c4_att
+    def forward(self, x):
+        B, C, H, W = x.shape
+        temp = x.flatten(2).transpose(1,2)
+        att_output, _ = self.att(temp, temp, temp)
+        c4_att = att_output.transpose(1,2).reshape(B, C, H, W)
+
+        return x + c4_att * self.gamma
+
 
 #Decoder: increases size gradually, concatenating the skip connections (U-Net style)
 #Uses interpolated upsampling instead of strided convolutions to avoid introducing visual artifacts

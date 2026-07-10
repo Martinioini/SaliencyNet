@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
+from pathlib import Path
 
 
 #Pearson correlation between pred and target, per image
@@ -81,7 +82,7 @@ def nss_metric(pred, fixation_map, eps=1e-8):
     return nss.mean()
 
 
-def evaluate_loader(image_encoder, image_decoder, device, loader, label):
+def evaluate_loader(image_encoder, image_decoder, image_attention, device, loader, label):
     #Metrics setup: load saved best model (caller loads the checkpoint beforehand)
 
     sim_metrics = []
@@ -99,7 +100,8 @@ def evaluate_loader(image_encoder, image_decoder, device, loader, label):
                 image_fix_batch = image_fix_batch.to(device)
 
                 c1, c2, c3, c4 = image_encoder(image_batch)
-                decoded_data = image_decoder(c1, c2, c3, c4)
+                c4_att = image_attention(c4)
+                decoded_data = image_decoder(c1, c2, c3, c4_att)
 
                 B = image_batch.shape[0]
                 
@@ -118,21 +120,23 @@ def evaluate_loader(image_encoder, image_decoder, device, loader, label):
     return sim_metrics, cc_metrics, nss_metrics, kl_metrics
 
 
-def predict_normalized(image_encoder, image_decoder, imgs):
+def predict_normalized(image_encoder, image_decoder, image_attention, imgs):
     c1, c2, c3, c4 = image_encoder(imgs)
-    logits = image_decoder(c1, c2, c3, c4)
+    c4_att = image_attention(c4)
+    logits = image_decoder(c1, c2, c3, c4_att)
     B = logits.size(0)
     prob = F.softmax(logits.view(B, -1), dim=1).view_as(logits)
     pred = prob / (prob.amax(dim=(2, 3), keepdim=True) + 1e-8)
     return pred, logits
 
 
-def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader):
+def compare_to_center_baseline(image_encoder, image_decoder, image_attention, device, val_loader):
     image_encoder.eval()
     image_decoder.eval()
+    image_attention.eval()
 
     def predict(imgs):
-        return predict_normalized(image_encoder, image_decoder, imgs)
+        return predict_normalized(image_encoder, image_decoder, image_attention, imgs)
 
     H = W = 256
     yy, xx = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
@@ -160,7 +164,8 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
         ax[i, 1].imshow(sals[i, 0].cpu(), cmap='hot'); ax[i, 1].set_title("GT"); ax[i, 1].axis('off')
         ax[i, 2].imshow(pred[i, 0].cpu(), cmap='hot'); ax[i, 2].set_title("Pred"); ax[i, 2].axis('off')
         ax[i, 3].imshow(fix[i, 0].cpu(), cmap='hot'); ax[i, 3].set_title("Fixation"); ax[i, 3].axis('off')
-    plt.tight_layout(); plt.savefig('center_baseline.png'); plt.close()
+    Path('plots').mkdir(parents=True, exist_ok=True)
+    plt.tight_layout(); plt.savefig('plots/center_baseline.png'); plt.close()
 
     print("\n>>> STEP 2+3: metriche su val set completo")
 
