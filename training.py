@@ -22,8 +22,8 @@ def train_epoch(encoder, decoder, attention, device, dataloader, loss_fn, optimi
         image_map_batch = image_map_batch.to(device)
 
         c1, c2, c3, c4 = encoder(image_batch)
-        c4_att = attention(c4)
-        decoded_data = decoder(c1, c2, c3, c4_att)
+        c3_att, c4_att = attention(c3, c4)
+        decoded_data = decoder(c1, c2, c3_att, c4_att)
 
         loss = loss_fn(decoded_data, image_map_batch)
 
@@ -50,8 +50,8 @@ def test_epoch(encoder, decoder, attention, device, dataloader, loss_fn):
             image_map_batch = image_map_batch.to(device)
 
             c1, c2, c3, c4 = encoder(image_batch)
-            c4_att = attention(c4)
-            decoded_data = decoder(c1, c2, c3, c4_att)
+            c3_att, c4_att = attention(c3, c4)
+            decoded_data = decoder(c1, c2, c3_att, c4_att)
 
             loss = loss_fn(decoded_data, image_map_batch)
             val_losses.append(loss.item())

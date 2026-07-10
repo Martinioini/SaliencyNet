@@ -100,8 +100,8 @@ def evaluate_loader(image_encoder, image_decoder, image_attention, device, loade
                 image_fix_batch = image_fix_batch.to(device)
 
                 c1, c2, c3, c4 = image_encoder(image_batch)
-                c4_att = image_attention(c4)
-                decoded_data = image_decoder(c1, c2, c3, c4_att)
+                c3_att, c4_att = image_attention(c3, c4)
+                decoded_data = image_decoder(c1, c2, c3_att, c4_att)
 
                 B = image_batch.shape[0]
                 
@@ -122,8 +122,8 @@ def evaluate_loader(image_encoder, image_decoder, image_attention, device, loade
 
 def predict_normalized(image_encoder, image_decoder, image_attention, imgs):
     c1, c2, c3, c4 = image_encoder(imgs)
-    c4_att = image_attention(c4)
-    logits = image_decoder(c1, c2, c3, c4_att)
+    c3_att, c4_att = image_attention(c3, c4)
+    logits = image_decoder(c1, c2, c3_att, c4_att)
     B = logits.size(0)
     prob = F.softmax(logits.view(B, -1), dim=1).view_as(logits)
     pred = prob / (prob.amax(dim=(2, 3), keepdim=True) + 1e-8)

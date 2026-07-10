@@ -7,8 +7,12 @@ print("chiavi attention:", list(att.keys()))
 print()
 
 # IL numero che conta: gamma. Se ~0, l'attention è spenta.
-if 'gamma' in att:
-    print(f">>> GAMMA = {att['gamma'].item():.6f}")
+if 'gamma_c3' in att:
+    print(f">>> GAMMA C3 = {att['gamma_c3'].item():.6f}")
+    print("    (se ~0 l'attention e' spenta; se cresciuto, e' attiva)\n")
+
+if 'gamma_c4' in att:
+    print(f">>> GAMMA C4 = {att['gamma_c4'].item():.6f}")
     print("    (se ~0 l'attention e' spenta; se cresciuto, e' attiva)\n")
 
 # statistiche dei pesi dell'attention

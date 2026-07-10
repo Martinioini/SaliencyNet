@@ -34,16 +34,28 @@ class attention(nn.Module):
     
     def __init__(self):
         super().__init__()
-        self.att = nn.MultiheadAttention(embed_dim=512, num_heads=8, batch_first=True)
-        self.gamma = nn.Parameter(torch.tensor([0.1]))
+        self.att_c4 = nn.MultiheadAttention(embed_dim=512, num_heads=8, batch_first=True)
+        self.gamma_c4 = nn.Parameter(torch.tensor([0.1]))
+        
+        self.att_c3 = nn.MultiheadAttention(embed_dim=256, num_heads=8, batch_first=True)
+        self.gamma_c3 = nn.Parameter(torch.tensor([0.1]))
 
-    def forward(self, x):
-        B, C, H, W = x.shape
-        temp = x.flatten(2).transpose(1,2)
-        att_output, _ = self.att(temp, temp, temp)
-        c4_att = att_output.transpose(1,2).reshape(B, C, H, W)
+    def forward(self, c3, c4):
+        # Process c4
+        B4, C4, H4, W4 = c4.shape
+        temp_c4 = c4.flatten(2).transpose(1,2)
+        att_output_c4, _ = self.att_c4(temp_c4, temp_c4, temp_c4)
+        c4_att = att_output_c4.transpose(1,2).reshape(B4, C4, H4, W4)
+        c4_out = c4 + c4_att * self.gamma_c4
 
-        return x + c4_att * self.gamma
+        # Process c3
+        B3, C3, H3, W3 = c3.shape
+        temp_c3 = c3.flatten(2).transpose(1,2)
+        att_output_c3, _ = self.att_c3(temp_c3, temp_c3, temp_c3)
+        c3_att = att_output_c3.transpose(1,2).reshape(B3, C3, H3, W3)
+        c3_out = c3 + c3_att * self.gamma_c3
+
+        return c3_out, c4_out
 
 
 #Decoder: increases size gradually, concatenating the skip connections (U-Net style)
