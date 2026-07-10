@@ -1,16 +1,17 @@
 import random
 from pathlib import Path
-import sys
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
 from dataset import prepare_paths, ImageDataset
-from models import discriminator, encoder, decoder
+from models import encoder, decoder
 from losses import SaliencyKLLoss
-from training import run_phase1, run_phase2, run_phase3, run_phase4
+from training import run_phase1, run_phase2
 from metrics import evaluate_loader, compare_to_center_baseline
 
+# --- config (stessi valori usati nel notebook) ---
 ROOT = './datasets/salicon'
 BATCH_SIZE = 16
 NUM_WORKERS = 8
@@ -25,36 +26,13 @@ PHASE2_ENCODER_LR = 1e-5
 PHASE2_DECODER_LR = 1e-4
 PHASE2_WEIGHT_DECAY = 1e-5
 PHASE2_EPOCHS = 50
-PHASE2_PATIENCE = 7
-
-PHASE3_DISCRIMINATOR_LR = 1e-5
-PHASE3_WEIGHT_DECAY = 1e-5
-PHASE3_EPOCHS = 4
-PHASE3_PATIENCE = 3
-
-PHASE4_ENCODER_LR = 1e-5
-PHASE4_DECODER_LR = 1e-4
-PHASE4_DISCRIMINATOR_LR = 1e-5
-PHASE4_WEIGHT_DECAY = 1e-5
-PHASE4_EPOCHS = 50
-PHASE4_PATIENCE = 4
-
-
+PHASE2_PATIENCE = 3
 SCHEDULER_FACTOR = 0.5
 SCHEDULER_PATIENCE = 3
 SCHEDULER_MIN_LR = 1e-7
- 
-def main():
-    
-    #By default run all the training, else:
-    run_type = 0
-    if len(sys.argv) == 2:
-        run_type = int(sys.argv[1])
-    
-    if run_type > 4 or run_type < 0:
-        print("Invalid run_type. Must be 0, 1, 2, 3 or 4.")
-        return
 
+
+def main():
     seed = np.random.seed(42)
     random.seed(42)
 
@@ -81,117 +59,52 @@ def main():
 
     image_encoder = encoder()
     image_decoder = decoder()
-    discr = discriminator()
     image_encoder.to(device)
     image_decoder.to(device)
-    discr.to(device)
 
     loss_fn = SaliencyKLLoss()
-    BCE_loss_fn = torch.nn.BCELoss()
 
     train_loss_history = []
     val_loss_history = []
 
-    if run_type == 1 or run_type == 2 or run_type == 0:
-        # --- Phase 1: encoder frozen, decoder only ---
-        params_to_optimize1 = [
-            {'params': image_decoder.parameters(), 'lr': PHASE1_LR}
-        ]
-        optim1 = torch.optim.Adam(params_to_optimize1, weight_decay=PHASE1_WEIGHT_DECAY)
+    # --- Phase 1: encoder frozen, decoder only ---
+    params_to_optimize1 = [
+        {'params': image_decoder.parameters(), 'lr': PHASE1_LR}
+    ]
+    optim1 = torch.optim.Adam(params_to_optimize1, weight_decay=PHASE1_WEIGHT_DECAY)
 
-        print("Phase 1")
-        run_phase1(
-            image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim1,
-            train_loss_history, val_loss_history,
-            num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
+    run_phase1(
+        image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim1,
+        train_loss_history, val_loss_history,
+        num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
 
-        # --- Phase 2: whole network, differential LR ---
-        params_to_optimize = [
-            {'params': image_encoder.parameters(), 'lr': PHASE2_ENCODER_LR},
-            {'params': image_decoder.parameters(), 'lr': PHASE2_DECODER_LR},
-        ]
-        optim = torch.optim.Adam(params_to_optimize, weight_decay=PHASE2_WEIGHT_DECAY)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optim, mode='min', factor=SCHEDULER_FACTOR, patience=SCHEDULER_PATIENCE, min_lr=SCHEDULER_MIN_LR)
-        image_encoder.to(device)
-        image_decoder.to(device)
+    # --- Phase 2: whole network, differential LR ---
+    params_to_optimize = [
+        {'params': image_encoder.parameters(), 'lr': PHASE2_ENCODER_LR},
+        {'params': image_decoder.parameters(), 'lr': PHASE2_DECODER_LR},
+    ]
+    optim = torch.optim.Adam(params_to_optimize, weight_decay=PHASE2_WEIGHT_DECAY)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optim, mode='min', factor=SCHEDULER_FACTOR, patience=SCHEDULER_PATIENCE, min_lr=SCHEDULER_MIN_LR)
+    image_encoder.to(device)
+    image_decoder.to(device)
 
-        print("Phase 2")
-        run_phase2(
-            image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim, scheduler,
-            train_loss_history, val_loss_history,
-            num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
+    run_phase2(
+        image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim, scheduler,
+        train_loss_history, val_loss_history,
+        num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
 
-    if run_type == 3 or run_type == 0: 
+    # --- Metrics on best.pt ---
+    ckpt = torch.load('best.pt', map_location=device, weights_only=False)
+    image_encoder.load_state_dict(ckpt['encoder'])
+    image_decoder.load_state_dict(ckpt['decoder'])
+    image_encoder.eval()
+    image_decoder.eval()
 
-        # --- Phase 3: train discriminator ---
-        ckpt = torch.load('models/phase2.pt', map_location=device, weights_only=False)
-        image_encoder.load_state_dict(ckpt['encoder'])
-        image_decoder.load_state_dict(ckpt['decoder'])
+    evaluate_loader(image_encoder, image_decoder, device, val_loader, "VALIDATION")
+    evaluate_loader(image_encoder, image_decoder, device, test_loader, "TEST")
 
-        params_to_optimize = [
-            {'params': discr.parameters(), 'lr': PHASE3_DISCRIMINATOR_LR}
-        ]
-        optim = torch.optim.Adam(params_to_optimize, weight_decay=PHASE3_WEIGHT_DECAY)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optim, mode='min', factor=SCHEDULER_FACTOR, patience=SCHEDULER_PATIENCE, min_lr=SCHEDULER_MIN_LR)
-        image_encoder.to(device)
-        image_decoder.to(device)
-
-        print("Phase 3")
-        run_phase3(
-            image_encoder, image_decoder, discr, device, train_loader, val_loader, BCE_loss_fn, optim,
-            train_loss_history, val_loss_history,
-            num_epochs=PHASE3_EPOCHS, patience=PHASE3_PATIENCE)
-
-    if run_type == 4 or run_type == 0:
-
-        # --- Phase 4: Adversarial training ---
-        ckpt1 = torch.load('models/phase2.pt', map_location=device, weights_only=False)
-        image_encoder.load_state_dict(ckpt1['encoder'])
-        image_decoder.load_state_dict(ckpt1['decoder'])
-
-        ckpt2 = torch.load('models/phase3.pt', map_location=device, weights_only=False)
-        discr.load_state_dict(ckpt2['discriminator'])
-
-        params_disc = [{'params': discr.parameters(), 'lr': PHASE4_DISCRIMINATOR_LR}]
-        optim_discriminator = torch.optim.Adam(params_disc, weight_decay=PHASE4_WEIGHT_DECAY)
-
-
-        params_gen = [
-            {'params': image_encoder.parameters(), 'lr': PHASE4_ENCODER_LR},
-            {'params': image_decoder.parameters(), 'lr': PHASE4_DECODER_LR},
-        ]
-        optim_generator = torch.optim.Adam(params_gen, weight_decay=PHASE4_WEIGHT_DECAY)
-
-        train_loss_history_generator = []
-        train_loss_history_discriminator = []
-        val_loss_history_generator = []
-        val_loss_history_discriminator = []
-
-        image_encoder.to(device)
-        image_decoder.to(device)
-        discr.to(device)
-
-        print("Phase 4")
-        run_phase4(
-            image_encoder, image_decoder, discr, device, train_loader, val_loader, BCE_loss_fn, optim_generator, optim_discriminator, 
-            train_loss_history_generator, train_loss_history_discriminator, val_loss_history_generator, val_loss_history_discriminator, 
-            num_epochs=PHASE4_EPOCHS, patience=PHASE4_PATIENCE
-        )
-        
-        # --- Metrics on best model (best encoder/decoder = phase2) ---
-        ckpt = torch.load(Path.cwd() / 'models' / 'phase4.pt', map_location=device, weights_only=False)
-        image_encoder.load_state_dict(ckpt['encoder'])
-        image_decoder.load_state_dict(ckpt['decoder'])
-
-        image_encoder.eval()
-        image_decoder.eval()
-
-        evaluate_loader(image_encoder, image_decoder, device, val_loader, "VALIDATION")
-        evaluate_loader(image_encoder, image_decoder, device, test_loader, "TEST")
-
-        compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
+    compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
 
 
 if __name__ == "__main__":

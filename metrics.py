@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
-from pathlib import Path
 
 
 #Pearson correlation between pred and target, per image
@@ -95,24 +94,24 @@ def evaluate_loader(image_encoder, image_decoder, device, loader, label):
 
         for image_batch, image_map_batch, image_fix_batch in loader:
 
-            image_batch = image_batch.to(device)
-            image_map_batch = image_map_batch.to(device)
-            image_fix_batch = image_fix_batch.to(device)
+                image_batch = image_batch.to(device)
+                image_map_batch = image_map_batch.to(device)
+                image_fix_batch = image_fix_batch.to(device)
 
-            c1, c2, c3, c4 = image_encoder(image_batch)
-            decoded_data = image_decoder(c1, c2, c3, c4)
+                c1, c2, c3, c4 = image_encoder(image_batch)
+                decoded_data = image_decoder(c1, c2, c3, c4)
 
-            B = image_batch.shape[0]
-            # I logit del decoder diventano una distribuzione su tutti i pixel col softmax
-            # (scelta coerente con la SaliencyKLLoss usata in training).
-            # SIM/CC/NSS ri-normalizzano internamente (somma / z-score, invarianti ad affini),
-            # quindi basta passare questa mappa. KL prende invece i logit grezzi.
-            prob_decoded_data = F.softmax(decoded_data.view(B, -1), dim=1).view_as(decoded_data)
+                B = image_batch.shape[0]
+                
+                flattened_decoded_data = decoded_data.view(B, -1)
+                log_decoded_data = F.softmax(flattened_decoded_data, dim=1)
+                normalized_decoded_data = log_decoded_data.view_as(decoded_data)
+                cc_norm_decoded_data = normalized_decoded_data / (normalized_decoded_data.amax(dim=(2, 3), keepdim=True) + 1e-8)
 
-            sim_metrics.append(sim_metric(prob_decoded_data, image_map_batch))
-            cc_metrics.append(cc_metric(prob_decoded_data, image_map_batch).mean())
-            nss_metrics.append(nss_metric(prob_decoded_data, image_fix_batch))
-            kl_metrics.append(kl_metric(decoded_data, image_map_batch))
+                sim_metrics.append(sim_metric(normalized_decoded_data, image_map_batch))
+                cc_metrics.append(cc_metric(cc_norm_decoded_data, image_map_batch).mean())
+                nss_metrics.append(nss_metric(normalized_decoded_data, image_fix_batch))
+                kl_metrics.append(kl_metric(decoded_data, image_map_batch))
 
     print(f'{label} METRICS: \nSIM: {torch.stack(sim_metrics).mean()}\n CC: {torch.stack(cc_metrics).mean()}\n NSS: {torch.stack(nss_metrics).mean()}\n KL: {torch.stack(kl_metrics).mean()}')
 
@@ -161,9 +160,7 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
         ax[i, 1].imshow(sals[i, 0].cpu(), cmap='hot'); ax[i, 1].set_title("GT"); ax[i, 1].axis('off')
         ax[i, 2].imshow(pred[i, 0].cpu(), cmap='hot'); ax[i, 2].set_title("Pred"); ax[i, 2].axis('off')
         ax[i, 3].imshow(fix[i, 0].cpu(), cmap='hot'); ax[i, 3].set_title("Fixation"); ax[i, 3].axis('off')
-    saved_plots = Path.cwd() / "plots"
-    saved_plots.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout(); plt.savefig(saved_plots / 'center_baseline.png'); plt.close()
+    plt.tight_layout(); plt.savefig('center_baseline.png'); plt.close()
 
     print("\n>>> STEP 2+3: metriche su val set completo")
 
