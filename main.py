@@ -1,4 +1,5 @@
 import random
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -6,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from dataset import prepare_paths, ImageDataset
-from models import encoder, decoder, attention
+from models import *
 from losses import SaliencyKLLoss
 from training import run_phase1, run_phase2
 from metrics import evaluate_loader, compare_to_center_baseline
@@ -34,6 +35,14 @@ SCHEDULER_MIN_LR = 1e-7
 
 
 def main():
+    run_type = 50
+    if len(sys.argv) == 2:
+        run_type = int(sys.argv[1])
+
+    if run_type not in (18, 50):
+        print("Invalid run_type. Must be 18 or 50.")
+        return
+
     seed = np.random.seed(42)
     random.seed(42)
 
@@ -58,9 +67,15 @@ def main():
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f'Selected device: {device}')
 
-    image_encoder = encoder()
-    image_decoder = decoder()
-    image_attention = attention()
+    if run_type == 50:
+        image_encoder = encoder50()
+        image_decoder = decoder50()
+        image_attention = attention50()
+    else:
+        image_encoder = encoder18()
+        image_decoder = decoder18()
+        image_attention = attention18()
+
     image_encoder.to(device)
     image_decoder.to(device)
     image_attention.to(device)
@@ -81,6 +96,13 @@ def main():
         train_loss_history, val_loss_history,
         num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
 
+    # carica il best della fase 1 prima di sbloccare l'encoder (l'ultima epoca puo' essere peggiore)
+    phase1_ckpt_path = 'models/phase1_model50.pt' if isinstance(image_encoder, encoder50) else 'models/phase1_model18.pt'
+    ckpt1 = torch.load(phase1_ckpt_path, map_location=device, weights_only=False)
+    image_encoder.load_state_dict(ckpt1['encoder'])
+    image_decoder.load_state_dict(ckpt1['decoder'])
+    image_attention.load_state_dict(ckpt1['attention'])
+
     # --- Phase 2: whole network, differential LR ---
     params_to_optimize = [
         {'params': image_encoder.parameters(), 'lr': PHASE2_ENCODER_LR},
@@ -99,7 +121,11 @@ def main():
         num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
 
     # --- Metrics on best.pt ---
-    ckpt = torch.load('models/best.pt', map_location=device, weights_only=False)
+    if isinstance(image_encoder, encoder50):
+        ckpt = torch.load('models/best_model50.pt', map_location=device, weights_only=False)
+    elif isinstance(image_encoder, encoder18):
+        ckpt = torch.load('models/best_model18.pt', map_location=device, weights_only=False)
+
     image_encoder.load_state_dict(ckpt['encoder'])
     image_decoder.load_state_dict(ckpt['decoder'])
     image_attention.load_state_dict(ckpt['attention'])
