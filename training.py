@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from pathlib import Path
+from models import *
 
 # Training function, if phase1 the encoder is frozen
 def train_epoch(encoder, decoder, attention, device, dataloader, loss_fn, optimizer, encoder_frozen=False):
@@ -114,7 +115,10 @@ def run_phase1(image_encoder, image_decoder, image_attention, device, train_load
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
-            models_path = models_dir / 'phase1.pt'
+            if isinstance(image_encoder, encoder50):
+                models_path = models_dir / 'phase1_model50.pt'
+            elif isinstance(image_encoder, encoder18):
+                models_path = models_dir / 'phase1_model18.pt'
             torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict(), "attention" : image_attention.state_dict()}, models_path)
         else:
             bad += 1
@@ -182,7 +186,10 @@ def run_phase2(image_encoder, image_decoder, image_attention, device, train_load
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
-            models_path = models_dir / 'best.pt'
+            if isinstance(image_encoder, encoder50):
+                models_path = models_dir / 'best_model50.pt'
+            elif isinstance(image_encoder, encoder18):
+                models_path = models_dir / 'best_model18.pt'
             torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict(), "attention" : image_attention.state_dict()}, models_path)
         else:
             bad += 1
