@@ -19,15 +19,15 @@ def prepare_paths(train_dir, map_dir, fix_dir):
     map_dict = {}
     fix_dict = {}
     
-    for f in os.listdir(map_dir / 'train'):
+    for f in sorted(os.listdir(map_dir / 'train')):
         stem = Path(f).stem
         map_dict[stem] = f
 
-    for f in os.listdir(fix_dir / 'train'):
+    for f in sorted(os.listdir(fix_dir / 'train')):
         stem = Path(f).stem
         fix_dict[stem] = f
 
-    for f in os.listdir(train_dir / 'train'):
+    for f in sorted(os.listdir(train_dir / 'train')):
         stem = Path(f).stem
         if stem in map_dict and stem in fix_dict:
             image_paths_train.append(train_dir / 'train' / f)
@@ -47,15 +47,15 @@ def prepare_paths(train_dir, map_dir, fix_dir):
     map_dict = {}
     fix_dict = {}
 
-    for f in os.listdir(map_dir / 'val'):
+    for f in sorted(os.listdir(map_dir / 'val')):
         stem = Path(f).stem
         map_dict[stem] = f
 
-    for f in os.listdir(fix_dir / 'val'):
+    for f in sorted(os.listdir(fix_dir / 'val')):
         stem = Path(f).stem
         fix_dict[stem] = f
 
-    for f in os.listdir(train_dir / 'val'):
+    for f in sorted(os.listdir(train_dir / 'val')):
         stem = Path(f).stem
         if stem in map_dict and stem in fix_dict:
             image_paths_val_full.append(train_dir / 'val' / f)
