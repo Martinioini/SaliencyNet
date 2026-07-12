@@ -6,6 +6,7 @@ import torch
 from pathlib import Path
 from models import *
 
+
 # Training function, if phase1 the encoder is frozen
 def train_epoch(encoder, decoder, attention, device, dataloader, loss_fn, optimizer, encoder_frozen=False):
     if encoder_frozen:
@@ -61,7 +62,7 @@ def test_epoch(encoder, decoder, attention, device, dataloader, loss_fn):
 
 #Phase 1: The encder is frozen, only a few epochs of training are done
 def run_phase1(image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim1,
-               train_loss_history, val_loss_history, num_epochs=5, patience=3):
+               train_loss_history, val_loss_history, use_attention, use_skip, num_epochs=5, patience=3):
     bad = 0
     best_val_error = float('inf')
 
@@ -115,10 +116,8 @@ def run_phase1(image_encoder, image_decoder, image_attention, device, train_load
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
-            if isinstance(image_encoder, encoder50):
-                models_path = models_dir / 'phase1_model50.pt'
-            elif isinstance(image_encoder, encoder18):
-                models_path = models_dir / 'phase1_model18.pt'
+
+            models_path = define_model_path(image_encoder, use_skip, use_attention)
             torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict(), "attention" : image_attention.state_dict()}, models_path)
         else:
             bad += 1
@@ -127,7 +126,7 @@ def run_phase1(image_encoder, image_decoder, image_attention, device, train_load
 
 #Phase 2: The whole network is used
 def run_phase2(image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim, scheduler,
-               train_loss_history, val_loss_history, num_epochs=50, patience=3):
+               train_loss_history, val_loss_history, use_attention, use_skip,num_epochs=50, patience=3):
     bad = 0
     best_val_error = float('inf')
     models_dir = Path('models')
@@ -186,12 +185,19 @@ def run_phase2(image_encoder, image_decoder, image_attention, device, train_load
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
-            if isinstance(image_encoder, encoder50):
-                models_path = models_dir / 'best_model50.pt'
-            elif isinstance(image_encoder, encoder18):
-                models_path = models_dir / 'best_model18.pt'
-            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict(), "attention" : image_attention.state_dict()}, models_path)
+            path = define_model_path(image_encoder, use_skip, use_attention)
+            torch.save({"encoder" : image_encoder.state_dict(), "decoder" : image_decoder.state_dict(), "attention" : image_attention.state_dict()}, path)
         else:
             bad += 1
             if bad == patience:
                 break
+
+def define_model_path(image_encoder, use_skip, use_attention):
+    path = Path('models')
+    attention = 'att' if use_attention else 'noatt'
+    skip = 'skip' if use_skip else 'noskip'
+    
+    if isinstance(image_encoder, encoder50):
+        return path / f'best_model_50_{attention}_{skip}.pt'
+    elif isinstance(image_encoder, encoder18):
+        return path / f'best_model_18_{attention}_{skip}.pt'

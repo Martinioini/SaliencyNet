@@ -9,8 +9,9 @@ from torch.utils.data import DataLoader
 from dataset import prepare_paths, ImageDataset
 from models import *
 from losses import SaliencyKLLoss
-from training import run_phase1, run_phase2
+from training import *
 from metrics import evaluate_loader, compare_to_center_baseline
+import argparse
 
 # --- config (stessi valori usati nel notebook) ---
 ROOT = './datasets/salicon'
@@ -35,16 +36,24 @@ SCHEDULER_MIN_LR = 1e-7
 
 
 def main():
-    run_type = 50
-    if len(sys.argv) == 2:
-        run_type = int(sys.argv[1])
 
-    if run_type not in (18, 50):
-        print("Invalid run_type. Must be 18 or 50.")
-        return
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backbone", default="resnet50", choices=["resnet18", "resnet50"], help="Backbone model to use")
+    parser.add_argument("--no_skip", action="store_true", help="Disable skip connections in the decoder")
+    parser.add_argument("--no_attention", action="store_true", help="Disable attention mechanism")
+    args = parser.parse_args()
 
-    seed = np.random.seed(42)
-    random.seed(42)
+    backbone_type = args.backbone
+    use_skip = not args.no_skip
+    use_attention = not args.no_attention  
+    
+    print(f"Using backbone: {backbone_type}, Skip connections: {use_skip}, Attention: {use_attention}")
+    
+    SEED = 42
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
 
     root = Path(ROOT)
     train_dir = root / "images/images"
@@ -67,14 +76,15 @@ def main():
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f'Selected device: {device}')
 
-    if run_type == 50:
+    if backbone_type == "resnet50":
         image_encoder = encoder50()
-        image_decoder = decoder50()
-        image_attention = attention50()
-    else:
+        image_decoder = decoder50(use_skip=use_skip)
+        image_attention = attention50(use_attention=use_attention)
+
+    elif backbone_type == "resnet18":
         image_encoder = encoder18()
-        image_decoder = decoder18()
-        image_attention = attention18()
+        image_decoder = decoder18(use_skip=use_skip)
+        image_attention = attention18(use_attention=use_attention)
 
     image_encoder.to(device)
     image_decoder.to(device)
@@ -93,11 +103,11 @@ def main():
 
     run_phase1(
         image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim1,
-        train_loss_history, val_loss_history,
+        train_loss_history, val_loss_history, use_attention=use_attention, use_skip=use_skip,
         num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
 
     # carica il best della fase 1 prima di sbloccare l'encoder (l'ultima epoca puo' essere peggiore)
-    phase1_ckpt_path = 'models/phase1_model50.pt' if isinstance(image_encoder, encoder50) else 'models/phase1_model18.pt'
+    phase1_ckpt_path = define_model_path(image_encoder, use_skip, use_attention)
     ckpt1 = torch.load(phase1_ckpt_path, map_location=device, weights_only=False)
     image_encoder.load_state_dict(ckpt1['encoder'])
     image_decoder.load_state_dict(ckpt1['decoder'])
@@ -117,14 +127,12 @@ def main():
 
     run_phase2(
         image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim, scheduler,
-        train_loss_history, val_loss_history,
+        train_loss_history, val_loss_history, use_attention=use_attention, use_skip=use_skip,
         num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
 
     # --- Metrics on best.pt ---
-    if isinstance(image_encoder, encoder50):
-        ckpt = torch.load('models/best_model50.pt', map_location=device, weights_only=False)
-    elif isinstance(image_encoder, encoder18):
-        ckpt = torch.load('models/best_model18.pt', map_location=device, weights_only=False)
+    ckpt_path = define_model_path(image_encoder, use_skip, use_attention)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
     image_encoder.load_state_dict(ckpt['encoder'])
     image_decoder.load_state_dict(ckpt['decoder'])
@@ -141,3 +149,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

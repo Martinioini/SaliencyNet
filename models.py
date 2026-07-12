@@ -32,8 +32,9 @@ class encoder18(nn.Module):
   
 class attention18(nn.Module):
     
-    def __init__(self):
+    def __init__(self, use_attention=True):
         super().__init__()
+        self.use_attention = use_attention
         self.att_c4 = nn.MultiheadAttention(embed_dim=512, num_heads=8, batch_first=True)
         self.gamma_c4 = nn.Parameter(torch.tensor([0.1]))
         
@@ -41,6 +42,10 @@ class attention18(nn.Module):
         self.gamma_c3 = nn.Parameter(torch.tensor([0.1]))
 
     def forward(self, c3, c4):
+        
+        if not self.use_attention:
+            return c3, c4
+        
         # Process c4
         B4, C4, H4, W4 = c4.shape
         temp_c4 = c4.flatten(2).transpose(1,2)
@@ -63,19 +68,25 @@ class attention18(nn.Module):
 #exploits of dropout and batchnorm2d.
 class decoder18(nn.Module):
 
-  def __init__(self):
+  # use_skip=True  -> U-Net con skip c1/c2/c3 (comportamento originale, invariato)
+  # use_skip=False -> solo c4, nessuna concatenazione: modello "Base"
+  def __init__(self, use_skip: bool = True):
 
     super().__init__()
+    self.use_skip = use_skip
 
     self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
     self.dropout = nn.Dropout2d(0.2)
-    self.conv1 = nn.Conv2d(in_channels=768, out_channels=256, kernel_size=3, stride=1, padding=1)
+    # con skip: input = upsample(c4) concatenato con c3 (512+256=768); senza skip: solo c4 (512)
+    self.conv1 = nn.Conv2d(in_channels=768 if use_skip else 512, out_channels=256, kernel_size=3, stride=1, padding=1)
     self.bn1 = nn.BatchNorm2d(256)
 
-    self.conv2 = nn.Conv2d(in_channels=384, out_channels=128, kernel_size=3, stride=1, padding=1)
+    # con skip: 256+128=384; senza skip: 256
+    self.conv2 = nn.Conv2d(in_channels=384 if use_skip else 256, out_channels=128, kernel_size=3, stride=1, padding=1)
     self.bn2 = nn.BatchNorm2d(128)
 
-    self.conv3 = nn.Conv2d(in_channels=192, out_channels=64, kernel_size=3, stride=1, padding=1)
+    # con skip: 128+64=192; senza skip: 128
+    self.conv3 = nn.Conv2d(in_channels=192 if use_skip else 128, out_channels=64, kernel_size=3, stride=1, padding=1)
     self.bn3 = nn.BatchNorm2d(64)
 
     self.conv4 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1)
@@ -86,21 +97,24 @@ class decoder18(nn.Module):
   def forward(self, c1, c2, c3, c4):
 
     x = self.up(c4)
-    x = torch.cat([x, c3], dim=1)
+    if self.use_skip:
+      x = torch.cat([x, c3], dim=1)
     x = self.conv1(x)
     x = self.bn1(x)
     x = self.dropout(x)
     x = torch.relu(x)
 
     x = self.up(x)
-    x = torch.cat([x, c2], dim=1)
+    if self.use_skip:
+      x = torch.cat([x, c2], dim=1)
     x = self.conv2(x)
     x = self.bn2(x)
     x = self.dropout(x)
     x = torch.relu(x)
 
     x = self.up(x)
-    x = torch.cat([x, c1], dim=1)
+    if self.use_skip:
+      x = torch.cat([x, c1], dim=1)
     x = self.conv3(x)
     x = self.bn3(x)
     x = self.dropout(x)
@@ -148,8 +162,9 @@ class encoder50(nn.Module):
   
 class attention50(nn.Module):
     
-    def __init__(self):
+    def __init__(self, use_attention=True):
         super().__init__()
+        self.use_attention = use_attention
         self.att_c4 = nn.MultiheadAttention(embed_dim=2048, num_heads=8, batch_first=True)
         self.gamma_c4 = nn.Parameter(torch.tensor([0.1]))
 
@@ -157,6 +172,8 @@ class attention50(nn.Module):
         self.gamma_c3 = nn.Parameter(torch.tensor([0.1]))
 
     def forward(self, c3, c4):
+        if not self.use_attention:
+            return c3, c4
         # Process c4
         B4, C4, H4, W4 = c4.shape
         temp_c4 = c4.flatten(2).transpose(1,2)
@@ -179,19 +196,25 @@ class attention50(nn.Module):
 #exploits of dropout and batchnorm2d.
 class decoder50(nn.Module):
 
-  def __init__(self):
+  # use_skip=True  -> U-Net con skip c1/c2/c3 (comportamento originale, invariato)
+  # use_skip=False -> solo c4, nessuna concatenazione: modello "Base"
+  def __init__(self, use_skip: bool = True):
 
     super().__init__()
+    self.use_skip = use_skip
 
     self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
     self.dropout = nn.Dropout2d(0.2)
-    self.conv1 = nn.Conv2d(in_channels=3072, out_channels=256, kernel_size=3, stride=1, padding=1)
+    # con skip: input = upsample(c4) concatenato con c3 (2048+1024=3072); senza skip: solo c4 (2048)
+    self.conv1 = nn.Conv2d(in_channels=3072 if use_skip else 2048, out_channels=256, kernel_size=3, stride=1, padding=1)
     self.bn1 = nn.BatchNorm2d(256)
 
-    self.conv2 = nn.Conv2d(in_channels=768, out_channels=128, kernel_size=3, stride=1, padding=1)
+    # con skip: 256+512=768; senza skip: 256
+    self.conv2 = nn.Conv2d(in_channels=768 if use_skip else 256, out_channels=128, kernel_size=3, stride=1, padding=1)
     self.bn2 = nn.BatchNorm2d(128)
 
-    self.conv3 = nn.Conv2d(in_channels=384, out_channels=64, kernel_size=3, stride=1, padding=1)
+    # con skip: 128+256=384; senza skip: 128
+    self.conv3 = nn.Conv2d(in_channels=384 if use_skip else 128, out_channels=64, kernel_size=3, stride=1, padding=1)
     self.bn3 = nn.BatchNorm2d(64)
 
     self.conv4 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1)
@@ -202,21 +225,24 @@ class decoder50(nn.Module):
   def forward(self, c1, c2, c3, c4):
 
     x = self.up(c4)
-    x = torch.cat([x, c3], dim=1)
+    if self.use_skip:
+      x = torch.cat([x, c3], dim=1)
     x = self.conv1(x)
     x = self.bn1(x)
     x = self.dropout(x)
     x = torch.relu(x)
 
     x = self.up(x)
-    x = torch.cat([x, c2], dim=1)
+    if self.use_skip:
+      x = torch.cat([x, c2], dim=1)
     x = self.conv2(x)
     x = self.bn2(x)
     x = self.dropout(x)
     x = torch.relu(x)
 
     x = self.up(x)
-    x = torch.cat([x, c1], dim=1)
+    if self.use_skip:
+      x = torch.cat([x, c1], dim=1)
     x = self.conv3(x)
     x = self.bn3(x)
     x = self.dropout(x)

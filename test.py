@@ -1,8 +1,16 @@
+import argparse
 import torch
 
-ckpt = torch.load('models/best.pt', map_location='cpu', weights_only=False)
+# path di default coerente col nuovo schema di naming (define_model_path in training.py)
+parser = argparse.ArgumentParser()
+parser.add_argument("--model", default="models/best_model_50_att_skip.pt",
+                    help="Checkpoint da ispezionare (default: resnet50 con attention e skip)")
+args = parser.parse_args()
+
+ckpt = torch.load(args.model, map_location='cpu', weights_only=False)
 att = ckpt['attention']   # ora l'attention è un modulo separato
 
+print(f"checkpoint: {args.model}")
 print("chiavi attention:", list(att.keys()))
 print()
 
