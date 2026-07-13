@@ -42,7 +42,7 @@ def sim_metric(pred, ground_truth, eps=1e-8):
     minimum = torch.minimum(pred_normalized, ground_normalized)
     sim_per_image = minimum.sum(dim=1)
 
-    return sim_per_image.mean()
+    return sim_per_image  # per-sample, mediato fuori
 
 
 #KL divergence, takes raw logits and does its own log_softmax
@@ -79,16 +79,21 @@ def nss_metric(pred, fixation_map, eps=1e-8):
 
     nss = pred_flatten.sum(dim=1) / (fix_flatten.sum(dim=1) + eps)
 
-    return nss.mean()
+    return nss  # per-sample, mediato fuori
 
 
 def evaluate_loader(image_encoder, image_decoder, image_attention, device, loader, label):
     #Metrics setup: load saved best model (caller loads the checkpoint beforehand)
 
-    sim_metrics = []
-    cc_metrics = []
-    nss_metrics = []
-    kl_metrics = []
+    # accumulo la SOMMA per-campione di ogni metrica e divido per il numero
+    # totale di campioni alla fine: cosi' l'ultimo batch (piu' piccolo con
+    # drop_last=False) pesa in proporzione al numero di immagini, non uguale
+    # a un batch pieno.
+    sim_sum = 0.0
+    cc_sum = 0.0
+    nss_sum = 0.0
+    kl_sum = 0.0
+    n_total = 0
 
     #Metrics over the given loader:
     with torch.no_grad():
@@ -104,20 +109,27 @@ def evaluate_loader(image_encoder, image_decoder, image_attention, device, loade
                 decoded_data = image_decoder(c1, c2, c3_att, c4_att)
 
                 B = image_batch.shape[0]
-                
+
                 flattened_decoded_data = decoded_data.view(B, -1)
                 log_decoded_data = F.softmax(flattened_decoded_data, dim=1)
                 normalized_decoded_data = log_decoded_data.view_as(decoded_data)
                 cc_norm_decoded_data = normalized_decoded_data / (normalized_decoded_data.amax(dim=(2, 3), keepdim=True) + 1e-8)
 
-                sim_metrics.append(sim_metric(normalized_decoded_data, image_map_batch))
-                cc_metrics.append(cc_metric(cc_norm_decoded_data, image_map_batch).mean())
-                nss_metrics.append(nss_metric(normalized_decoded_data, image_fix_batch))
-                kl_metrics.append(kl_metric(decoded_data, image_map_batch))
+                sim_sum += sim_metric(normalized_decoded_data, image_map_batch).sum().item()
+                cc_sum += cc_metric(cc_norm_decoded_data, image_map_batch).sum().item()
+                nss_sum += nss_metric(normalized_decoded_data, image_fix_batch).sum().item()
+                # KL e' batchmean: rimoltiplico per B per recuperare la somma
+                kl_sum += kl_metric(decoded_data, image_map_batch).item() * B
+                n_total += B
 
-    print(f'\n{label} METRICS: \nSIM: {torch.stack(sim_metrics).mean()}\n CC: {torch.stack(cc_metrics).mean()}\n NSS: {torch.stack(nss_metrics).mean()}\n KL: {torch.stack(kl_metrics).mean()}\n')
+    sim = sim_sum / n_total
+    cc = cc_sum / n_total
+    nss = nss_sum / n_total
+    kl = kl_sum / n_total
 
-    return sim_metrics, cc_metrics, nss_metrics, kl_metrics
+    print(f'\n{label} METRICS: \nSIM: {sim}\n CC: {cc}\n NSS: {nss}\n KL: {kl}\n')
+
+    return sim, cc, nss, kl
 
 
 def predict_normalized(image_encoder, image_decoder, image_attention, imgs):
@@ -143,8 +155,10 @@ def compare_to_center_baseline(image_encoder, image_decoder, image_attention, de
     center_norm = (center / (center.amax() + 1e-8)).view(1, 1, H, W)
     center_logits = torch.log(center / center.sum() + 1e-8).view(1, 1, H, W)
 
-    cc_model_list, nss_model_list, kl_model_list = [], [], []
-    cc_center_list, nss_center_list, kl_center_list = [], [], []
+    # somme per-campione (stessa aggregazione di evaluate_loader)
+    m_cc_sum = m_nss_sum = m_kl_sum = 0.0
+    c_cc_sum = c_nss_sum = c_kl_sum = 0.0
+    n_total = 0
 
     print("Evaluating Center Baseline vs Model...")
 
@@ -168,13 +182,15 @@ def compare_to_center_baseline(image_encoder, image_decoder, image_attention, de
             batch_center_norm = center_norm.expand(B, -1, -1, -1)
             batch_center_logits = center_logits.expand(B, -1, -1, -1)
 
-            cc_model_list.append(cc_metric(cc_norm_decoded_data, image_map_batch).mean())
-            nss_model_list.append(nss_metric(normalized_decoded_data, image_fix_batch))
-            kl_model_list.append(kl_metric(decoded_data, image_map_batch))
+            m_cc_sum += cc_metric(cc_norm_decoded_data, image_map_batch).sum().item()
+            m_nss_sum += nss_metric(normalized_decoded_data, image_fix_batch).sum().item()
+            m_kl_sum += kl_metric(decoded_data, image_map_batch).item() * B
 
-            cc_center_list.append(cc_metric(batch_center_norm, image_map_batch).mean())
-            nss_center_list.append(nss_metric(batch_center_norm, image_fix_batch))
-            kl_center_list.append(kl_metric(batch_center_logits, image_map_batch))
+            c_cc_sum += cc_metric(batch_center_norm, image_map_batch).sum().item()
+            c_nss_sum += nss_metric(batch_center_norm, image_fix_batch).sum().item()
+            c_kl_sum += kl_metric(batch_center_logits, image_map_batch).item() * B
+
+            n_total += B
 
             # Plot samples during the first batch only
             if i == 0:
@@ -208,13 +224,13 @@ def compare_to_center_baseline(image_encoder, image_decoder, image_attention, de
                 plt.savefig('plots/center_baseline.png')
                 plt.close()
 
-    m_cc = torch.stack(cc_model_list).mean().item()
-    m_nss = torch.stack(nss_model_list).mean().item()
-    m_kl = torch.stack(kl_model_list).mean().item()
+    m_cc = m_cc_sum / n_total
+    m_nss = m_nss_sum / n_total
+    m_kl = m_kl_sum / n_total
 
-    c_cc = torch.stack(cc_center_list).mean().item()
-    c_nss = torch.stack(nss_center_list).mean().item()
-    c_kl = torch.stack(kl_center_list).mean().item()
+    c_cc = c_cc_sum / n_total
+    c_nss = c_nss_sum / n_total
+    c_kl = c_kl_sum / n_total
 
     print("\nBaseline Comparison Results:")
     print(f"KL  -> Model: {m_kl:.4f} | Center: {c_kl:.4f} | Difference: {m_kl - c_kl:+.4f}")
