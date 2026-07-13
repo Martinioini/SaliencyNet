@@ -62,7 +62,7 @@ def test_epoch(encoder, decoder, attention, device, dataloader, loss_fn):
 
 #Phase 1: The encder is frozen, only a few epochs of training are done
 def run_phase1(image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim1,
-               train_loss_history, val_loss_history, use_attention, use_skip, num_epochs=5, patience=3):
+               train_loss_history, val_loss_history, use_attention, use_skip, model_name="model", num_epochs=5, patience=3):
     bad = 0
     best_val_error = float('inf')
 
@@ -101,15 +101,16 @@ def run_phase1(image_encoder, image_decoder, image_attention, device, train_load
         train_loss_history.append(train_loss)
         val_loss_history.append(val_loss)
 
+
         plt.figure(figsize=(10, 5))
-        plt.plot(train_loss_history, label='Train Loss', color='blue')
-        plt.plot(val_loss_history, label='Validation Loss', color='orange')
-        plt.title('Learning Curves')
+        plt.plot(train_loss_history, label='Train Loss (Phase 1)', color='lightblue')
+        plt.plot(val_loss_history, label='Val Loss (Phase 1)', color='navajowhite')
+        plt.title(f'Learning Curves - {model_name}')
         plt.xlabel('Epoch')
         plt.ylabel('KL Divergence Loss')
         plt.legend()
         plt.grid(True)
-        plt.savefig('plots/phase1_curves.png')
+        plt.savefig(f'plots/{model_name}_curves.png') # Salva col nome del modello
         plt.close()
 
         #early stopping and saving of the best model
@@ -126,7 +127,10 @@ def run_phase1(image_encoder, image_decoder, image_attention, device, train_load
 
 #Phase 2: The whole network is used
 def run_phase2(image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim, scheduler,
-               train_loss_history, val_loss_history, use_attention, use_skip,num_epochs=50, patience=3):
+               train_loss_history, val_loss_history, use_attention, use_skip, model_name="model", num_epochs=50, patience=3):
+    
+    phase1_len = len(train_loss_history)
+
     bad = 0
     best_val_error = float('inf')
     models_dir = Path('models')
@@ -171,14 +175,21 @@ def run_phase2(image_encoder, image_decoder, image_attention, device, train_load
         val_loss_history.append(val_loss)
 
         plt.figure(figsize=(10, 5))
-        plt.plot(train_loss_history, label='Train Loss', color='blue')
-        plt.plot(val_loss_history, label='Validation Loss', color='orange')
-        plt.title('Learning Curves')
+        
+        if phase1_len > 0:
+            plt.plot(range(phase1_len), train_loss_history[:phase1_len], label='Train Loss (Phase 1)', color='lightblue')
+            plt.plot(range(phase1_len), val_loss_history[:phase1_len], label='Val Loss (Phase 1)', color='navajowhite')
+
+        start_idx = max(0, phase1_len - 1)
+        plt.plot(range(start_idx, len(train_loss_history)), train_loss_history[start_idx:], label='Train Loss (Phase 2)', color='blue')
+        plt.plot(range(start_idx, len(val_loss_history)), val_loss_history[start_idx:], label='Val Loss (Phase 2)', color='orange')
+        plt.axvline(x=start_idx, color='grey', linestyle='--', label='Start Phase 2')
+        plt.title(f'Learning Curves - {model_name}')
         plt.xlabel('Epoch')
         plt.ylabel('KL Divergence Loss')
         plt.legend()
         plt.grid(True)
-        plt.savefig('plots/phase2_curves.png')
+        plt.savefig(f'plots/{model_name}_curves.png')
         plt.close()
 
         #early stopping and saving of the best model

@@ -38,17 +38,28 @@ SCHEDULER_MIN_LR = 1e-7
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--backbone", default="resnet50", choices=["resnet18", "resnet50"], help="Backbone model to use")
-    parser.add_argument("--run_type", default="train", choices=["train", "test"], help="Run type: train or test")
-    parser.add_argument("--no_skip", action="store_true", help="Disable skip connections in the decoder")
+    parser.add_argument("--backbone", choices=["resnet18", "resnet50"], default="resnet18", help="Choose the backbone: resnet18 or resnet50")    
+    parser.add_argument("run_type", choices=["train_18", "train_50", "test_18", "test_50"], help="Choose the action: train_18, train_50, test_18, or test_50")
+    parser.add_argument("--no_skip", action="store_true", help="Disable skip connections")
     parser.add_argument("--no_attention", action="store_true", help="Disable attention mechanism")
     args = parser.parse_args()
 
-    backbone_type = args.backbone
-    run_type = args.run_type
+
     use_skip = not args.no_skip
     use_attention = not args.no_attention  
 
+    if args.run_type == "train_18":
+        backbone_type = "resnet18"
+        do_train = True
+    elif args.run_type == "train_50":
+        backbone_type = "resnet50"
+        do_train = True
+    elif args.run_type == "test_18":
+        backbone_type = "resnet18"
+        do_train = False
+    elif args.run_type == "test_50":
+        backbone_type = "resnet50"
+        do_train = False
     
     print(f"Using backbone: {backbone_type}, Skip connections: {use_skip}, Attention: {use_attention}")
     
@@ -95,7 +106,7 @@ def main():
 
     loss_fn = SaliencyKLLoss()
 
-    if run_type == "train":
+    if do_train:
         train_loss_history = []
         val_loss_history = []
 
@@ -108,7 +119,7 @@ def main():
         run_phase1(
             image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim1,
             train_loss_history, val_loss_history, use_attention=use_attention, use_skip=use_skip,
-            num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
+            model_name=backbone_type, num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
 
         # carica il best della fase 1 prima di sbloccare l'encoder (l'ultima epoca puo' essere peggiore)
         phase1_ckpt_path = define_model_path(image_encoder, use_skip, use_attention)
@@ -132,9 +143,9 @@ def main():
         run_phase2(
             image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim, scheduler,
             train_loss_history, val_loss_history, use_attention=use_attention, use_skip=use_skip,
-            num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
+            model_name=backbone_type, num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
 
-    # Metrics on best.pt
+    # --- Metrics on best.pt ---
     ckpt_path = define_model_path(image_encoder, use_skip, use_attention)
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
@@ -153,4 +164,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+

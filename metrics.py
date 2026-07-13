@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from pathlib import Path
-
+import random
 
 #Pearson correlation between pred and target, per image
 def cc_metric(pred, target, eps=1e-8):
@@ -115,7 +115,7 @@ def evaluate_loader(image_encoder, image_decoder, image_attention, device, loade
                 nss_metrics.append(nss_metric(normalized_decoded_data, image_fix_batch))
                 kl_metrics.append(kl_metric(decoded_data, image_map_batch))
 
-    print(f'{label} METRICS: \nSIM: {torch.stack(sim_metrics).mean()}\n CC: {torch.stack(cc_metrics).mean()}\n NSS: {torch.stack(nss_metrics).mean()}\n KL: {torch.stack(kl_metrics).mean()}')
+    print(f'\n{label} METRICS: \nSIM: {torch.stack(sim_metrics).mean()}\n CC: {torch.stack(cc_metrics).mean()}\n NSS: {torch.stack(nss_metrics).mean()}\n KL: {torch.stack(kl_metrics).mean()}\n')
 
     return sim_metrics, cc_metrics, nss_metrics, kl_metrics
 
@@ -135,104 +135,90 @@ def compare_to_center_baseline(image_encoder, image_decoder, image_attention, de
     image_decoder.eval()
     image_attention.eval()
 
-    def predict(imgs):
-        return predict_normalized(image_encoder, image_decoder, image_attention, imgs)
-
+    # Center prior setup
     H = W = 256
     yy, xx = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
-    center = torch.exp(-((yy - H/2)**2 + (xx - W/2)**2) / (2 * (H/4)**2)).float()
-    center_dist = (center / center.sum()).to(device)
-    log_center = torch.log(center_dist + 1e-8).view(1, -1)
-    center_norm = (center / center.max()).to(device)
+    center = torch.exp(-((yy - H/2)**2 + (xx - W/2)**2) / (2 * (H/4)**2)).float().to(device)
+    
+    center_norm = (center / (center.amax() + 1e-8)).view(1, 1, H, W)
+    center_logits = torch.log(center / center.sum() + 1e-8).view(1, 1, H, W)
 
-    print(">>> STEP 1: predizioni vs GT (4 esempi)")
-    with torch.no_grad():
-        imgs, sals, fix = next(iter(val_loader))
-        imgs = imgs.to(device)
-        sals = sals.to(device)
-        fix = fix.to(device)
-        pred, _ = predict(imgs)
+    cc_model_list, nss_model_list, kl_model_list = [], [], []
+    cc_center_list, nss_center_list, kl_center_list = [], [], []
 
-    mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-    std  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-
-    n = min(4, imgs.size(0))
-    fig, ax = plt.subplots(n, 4, figsize=(12, 3 * n))
-    for i in range(n):
-        img_show = (imgs[i].cpu() * std + mean).clamp(0, 1).permute(1, 2, 0)
-        ax[i, 0].imshow(img_show); ax[i, 0].set_title("Input"); ax[i, 0].axis('off')
-        ax[i, 1].imshow(sals[i, 0].cpu(), cmap='hot'); ax[i, 1].set_title("GT"); ax[i, 1].axis('off')
-        ax[i, 2].imshow(pred[i, 0].cpu(), cmap='hot'); ax[i, 2].set_title("Pred"); ax[i, 2].axis('off')
-        ax[i, 3].imshow(fix[i, 0].cpu(), cmap='hot'); ax[i, 3].set_title("Fixation"); ax[i, 3].axis('off')
-    Path('plots').mkdir(parents=True, exist_ok=True)
-    plt.tight_layout(); plt.savefig('plots/center_baseline.png'); plt.close()
-
-    print("\n>>> STEP 2+3: metriche su val set completo")
-
-    kl_model_all, cc_model_all, nss_model_all = [], [], []
-    kl_center_all, cc_center_all, nss_center_all = [], [], []
+    print("Evaluating Center Baseline vs Model...")
 
     with torch.no_grad():
-        for imgs, sals, fix in val_loader:
-            imgs = imgs.to(device)
-            sals = sals.to(device)
-            fix = fix.to(device)
-            B = imgs.size(0)
+        for i, (image_batch, image_map_batch, image_fix_batch) in enumerate(val_loader):
+            
+            image_batch = image_batch.to(device)
+            image_map_batch = image_map_batch.to(device)
+            image_fix_batch = image_fix_batch.to(device)
+            B = image_batch.shape[0]
 
-            pred, logits = predict(imgs)
+            c1, c2, c3, c4 = image_encoder(image_batch)
+            c3_att, c4_att = image_attention(c3, c4)
+            decoded_data = image_decoder(c1, c2, c3_att, c4_att)
 
-            pred_flat = logits.view(B, -1)
-            targ_flat = sals.view(B, -1)
-            log_pred = F.log_softmax(pred_flat, dim=1)
-            targ_norm = targ_flat / (targ_flat.sum(dim=1, keepdim=True) + 1e-8)
-            kl_m = F.kl_div(log_pred, targ_norm, reduction='batchmean')
-            kl_model_all.append(kl_m.item())
+            flattened_decoded_data = decoded_data.view(B, -1)
+            log_decoded_data = F.softmax(flattened_decoded_data, dim=1)
+            normalized_decoded_data = log_decoded_data.view_as(decoded_data)
+            cc_norm_decoded_data = normalized_decoded_data / (normalized_decoded_data.amax(dim=(2, 3), keepdim=True) + 1e-8)
 
-            sals_for_cc = sals / (sals.amax(dim=(2, 3), keepdim=True) + 1e-8)
-            cc_m = cc_metric(pred, sals_for_cc)
-            cc_model_all.append(cc_m.cpu().numpy())
+            batch_center_norm = center_norm.expand(B, -1, -1, -1)
+            batch_center_logits = center_logits.expand(B, -1, -1, -1)
 
-            nss_m = nss_metric(pred, fix)
-            nss_model_all.append(nss_m.cpu().numpy())
+            cc_model_list.append(cc_metric(cc_norm_decoded_data, image_map_batch).mean())
+            nss_model_list.append(nss_metric(normalized_decoded_data, image_fix_batch))
+            kl_model_list.append(kl_metric(decoded_data, image_map_batch))
 
-            log_center_b = log_center.expand(B, -1)
-            kl_c = F.kl_div(log_center_b, targ_norm, reduction='batchmean')
-            kl_center_all.append(kl_c.item())
+            cc_center_list.append(cc_metric(batch_center_norm, image_map_batch).mean())
+            nss_center_list.append(nss_metric(batch_center_norm, image_fix_batch))
+            kl_center_list.append(kl_metric(batch_center_logits, image_map_batch))
 
-            center_pred = center_norm.view(1, 1, H, W).expand(B, 1, H, W)
-            cc_c = cc_metric(center_pred, sals_for_cc)
-            cc_center_all.append(cc_c.cpu().numpy())
+            # Plot samples during the first batch only
+            if i == 0:
+                mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+                std  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+                
+                n = min(4, image_batch.shape[0])
+                fig, axes = plt.subplots(n, 4, figsize=(12, 3 * n))
+                
+                for j in range(n):
+                    img_show = (image_batch[j].cpu() * std + mean).clamp(0, 1).permute(1, 2, 0)
+                    
+                    axes[j, 0].imshow(img_show)
+                    axes[j, 0].set_title("Input")
+                    axes[j, 0].axis('off')
+                    
+                    axes[j, 1].imshow(image_map_batch[j, 0].cpu(), cmap='hot')
+                    axes[j, 1].set_title("Ground Truth")
+                    axes[j, 1].axis('off')
+                    
+                    axes[j, 2].imshow(normalized_decoded_data[j, 0].cpu(), cmap='hot')
+                    axes[j, 2].set_title("Prediction")
+                    axes[j, 2].axis('off')
+                    
+                    axes[j, 3].imshow(image_fix_batch[j, 0].cpu(), cmap='hot')
+                    axes[j, 3].set_title("Fixation")
+                    axes[j, 3].axis('off')
+                    
+                Path('plots').mkdir(parents=True, exist_ok=True)
+                plt.tight_layout()
+                plt.savefig('plots/center_baseline.png')
+                plt.close()
 
-            nss_c = nss_metric(center_pred, fix)
-            nss_center_all.append(nss_c.cpu().numpy())
+    m_cc = torch.stack(cc_model_list).mean().item()
+    m_nss = torch.stack(nss_model_list).mean().item()
+    m_kl = torch.stack(kl_model_list).mean().item()
 
-    kl_model  = np.mean(kl_model_all)
-    kl_center = np.mean(kl_center_all)
-    cc_model  = np.concatenate(cc_model_all).mean()
-    cc_center = np.concatenate(cc_center_all).mean()
-    nss_model = np.mean(nss_model_all)
-    nss_center = np.mean(nss_center_all)
+    c_cc = torch.stack(cc_center_list).mean().item()
+    c_nss = torch.stack(nss_center_list).mean().item()
+    c_kl = torch.stack(kl_center_list).mean().item()
 
-    print(f"\n  KL  modello       : {kl_model:.4f}")
-    print(f"  KL  center prior  : {kl_center:.4f}")
-    print(f"  -> il modello batte il center prior di {kl_center - kl_model:+.4f} (più alto = meglio)")
-    print()
-    print(f"  CC  modello       : {cc_model:.4f}")
-    print(f"  CC  center prior  : {cc_center:.4f}")
-    print(f"  -> il modello batte il center prior di {cc_model - cc_center:+.4f} (più alto = meglio)")
-    print()
-    print(f"  NSS modello       : {nss_model:.4f}")
-    print(f"  NSS center prior  : {nss_center:.4f}")
-    print(f"  -> il modello batte il center prior di {nss_model - nss_center:+.4f} (più alto = meglio)")
-    print()
-    print("Interpretazione rapida:")
-    print("  - se KL_model è MOLTO vicino a KL_center -> il modello ha imparato poco oltre il bias centrale")
-    print("  - se CC_model > 0.7 sei in territorio decente per ResNet18 baseline")
-    print("  - se CC_model ~ CC_center -> il modello non sta imparando")
-    print("  - NSS alto indica che le attivazioni di picco cadono esattamente sulle fixations umane reali")
+    print("\nBaseline Comparison Results:")
+    print(f"KL  -> Model: {m_kl:.4f} | Center: {c_kl:.4f} | Difference: {m_kl - c_kl:+.4f}")
+    print(f"CC  -> Model: {m_cc:.4f} | Center: {c_cc:.4f} | Difference: {m_cc - c_cc:+.4f}")
+    print(f"NSS -> Model: {m_nss:.4f} | Center: {c_nss:.4f} | Difference: {m_nss - c_nss:+.4f}\n")
 
-    return {
-        "kl_model": kl_model, "kl_center": kl_center,
-        "cc_model": cc_model, "cc_center": cc_center,
-        "nss_model": nss_model, "nss_center": nss_center,
-    }
+    return m_cc, m_nss, m_kl, c_cc, c_nss, c_kl
