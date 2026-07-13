@@ -2,7 +2,7 @@ import torch
 import torchvision.models as models
 from torch import nn
 
-#encoder built from a pretrained ResNet18, the last two layers are dropped, and the intermediate are used for skip connections
+# resnet18 encoder. last 2 layers dropped, intermediate features kept for skip connections.
 class encoder(nn.Module):
 
     def __init__(self):
@@ -20,8 +20,6 @@ class encoder(nn.Module):
         self.layer3 = backbone.layer3
         self.layer4 = backbone.layer4
 
-        #ignore last 2 layers of resnet
-
     def forward(self, x):
         x = self.stem(x)
         c1 = self.layer1(x)
@@ -30,9 +28,7 @@ class encoder(nn.Module):
         c4 = self.layer4(c3)
         return c1, c2, c3, c4
 
-#Decoder: increases size gradually, concatenating the skip connections (U-Net style)
-#Uses interpolated upsampling instead of strided convolutions to avoid introducing visual artifacts
-#exploits of dropout and batchnorm2d.
+# bilinear upsampling avoids checkerboard artefacts common in transposed convolutions
 class decoder(nn.Module):
 
     def __init__(self):
@@ -41,18 +37,22 @@ class decoder(nn.Module):
 
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
         self.dropout = nn.Dropout2d(0.2)
+        # 512 (c4 upsampled) + 256 (c3) = 768
         self.conv1 = nn.Conv2d(in_channels=768, out_channels=256, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(256)
 
+        # 256 (conv1 output) + 128 (c2) = 384
         self.conv2 = nn.Conv2d(in_channels=384, out_channels=128, kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(128)
 
+        # 128 (conv2 output) + 64 (c1) = 192
         self.conv3 = nn.Conv2d(in_channels=192, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(64)
 
         self.conv4 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.bn4 = nn.BatchNorm2d(32)
 
+        # output is raw logits. saliency is a probability distribution over the image, so no sigmoid/softmax here.
         self.conv5 = nn.Conv2d(in_channels=32, out_channels=1, kernel_size=3, stride=1, padding=1)
 
     def forward(self, c1, c2, c3, c4):
@@ -95,29 +95,37 @@ class discriminator(nn.Module):
     def __init__(self):
         super().__init__()
 
+        # heavy dropout to prevent discriminator from overfitting and dominating the generator too early
         self.dropout = nn.Dropout2d(0.2)
         self.fc_dropout = nn.Dropout(0.2)
 
+        # 3 (image RGB) + 1 (saliency map) = 4 channels input. 1x1 conv reduces to 3 channels.
         self.conv1_1 = nn.Conv2d(in_channels=4, out_channels=3, kernel_size=1, stride=1, padding=0)
         self.bn1_1 = nn.BatchNorm2d(3)
 
+        # 3 -> 32 channels (spatial: 256x256)
         self.conv1_2 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.bn1_2 = nn.BatchNorm2d(32)
 
         self.pooling = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
+        # 32 -> 64 channels (spatial: 128x128 after 1st pool)
         self.conv2_1 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.bn2_1 = nn.BatchNorm2d(64)
 
+        # 64 -> 64 channels (spatial: 128x128)
         self.conv2_2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.bn2_2 = nn.BatchNorm2d(64)
 
+        # 64 -> 64 channels (spatial: 64x64 after 2nd pool)
         self.conv3_1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.bn3_1 = nn.BatchNorm2d(64)
 
+        # 64 -> 64 channels (spatial: 64x64)
         self.conv3_2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.bn3_2 = nn.BatchNorm2d(64)
 
+        # 64 channels * 32 * 32 spatial resolution after 3 maxpools
         self.FFNN4 = nn.Linear(in_features=64 * 32 * 32, out_features=100)
         self.FFNN5 = nn.Linear(in_features=100, out_features=2)
         self.FFNN6 = nn.Linear(in_features=2, out_features=1)
@@ -172,6 +180,7 @@ class discriminator(nn.Module):
         x = torch.tanh(x)
 
         x = self.FFNN6(x)
+        # outputs a single probability [0,1] of the sample being real
         x = torch.sigmoid(x)
 
         return x

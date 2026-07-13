@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('Agg')  # backend non interattivo: plt.show() bloccherebbe lo script
+matplotlib.use('Agg')  # non-interactive backend
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from pathlib import Path
 
 
-#Pearson correlation between pred and target, per image
+# pearson correlation. internally mean-shifts, so it evaluates linear correlation regardless of absolute scaling.
 def cc_metric(pred, target, eps=1e-8):
 
     B = pred.size(0)
@@ -20,10 +20,10 @@ def cc_metric(pred, target, eps=1e-8):
     num = (p * t).sum(dim=1)
     den = torch.sqrt((p * p).sum(dim=1) * (t * t).sum(dim=1) + eps)
 
-    return (num / den)  # per-sample, mediato fuori
+    return (num / den)  # per-sample, averaged outside
 
 
-#Histogram intersection between the two distributions, per image
+# histogram intersection. normalizes both maps to sum to 1 internally to compare them as proper distributions.
 def sim_metric(pred, ground_truth, eps=1e-8):
 
     pred = pred.float()
@@ -45,7 +45,7 @@ def sim_metric(pred, ground_truth, eps=1e-8):
     return sim_per_image.mean()
 
 
-#KL divergence, takes raw logits and does its own log_softmax
+# kl divergence applies its own log_softmax to raw logits
 def kl_metric(pred, ground_truth, eps=1e-8):
 
     pred = pred.float()
@@ -61,7 +61,7 @@ def kl_metric(pred, ground_truth, eps=1e-8):
     return F.kl_div(log_pred, targ, reduction='batchmean')
 
 
-#Normalized Scanpath Saliency, uses the fixation map instead of the continuous one
+# nss is the only metric evaluated against the binary fixation map instead of the continuous density map
 def nss_metric(pred, fixation_map, eps=1e-8):
 
     pred = pred.float()
@@ -83,14 +83,13 @@ def nss_metric(pred, fixation_map, eps=1e-8):
 
 
 def evaluate_loader(image_encoder, image_decoder, device, loader, label):
-    #Metrics setup: load saved best model (caller loads the checkpoint beforehand)
 
     sim_metrics = []
     cc_metrics = []
     nss_metrics = []
     kl_metrics = []
 
-    #Metrics over the given loader:
+    # metrics over the given loader:
     with torch.no_grad():
 
         for image_batch, image_map_batch, image_fix_batch in loader:
@@ -103,10 +102,9 @@ def evaluate_loader(image_encoder, image_decoder, device, loader, label):
             decoded_data = image_decoder(c1, c2, c3, c4)
 
             B = image_batch.shape[0]
-            # I logit del decoder diventano una distribuzione su tutti i pixel col softmax
-            # (scelta coerente con la SaliencyKLLoss usata in training).
-            # SIM/CC/NSS ri-normalizzano internamente (somma / z-score, invarianti ad affini),
-            # quindi basta passare questa mappa. KL prende invece i logit grezzi.
+            # apply softmax over the flattened map because network outputs raw logits.
+            # SIM/CC/NSS renormalize internally (sum/z-score), so passing softmax output is fine.
+            # KL takes raw logits directly.
             prob_decoded_data = F.softmax(decoded_data.view(B, -1), dim=1).view_as(decoded_data)
 
             sim_metrics.append(sim_metric(prob_decoded_data, image_map_batch))
@@ -135,6 +133,7 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
     def predict(imgs):
         return predict_normalized(image_encoder, image_decoder, imgs)
 
+    # center prior (photographers usually center their subjects). if we don't beat this, the model learned nothing.
     H = W = 256
     yy, xx = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
     center = torch.exp(-((yy - H/2)**2 + (xx - W/2)**2) / (2 * (H/4)**2)).float()
@@ -142,7 +141,7 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
     log_center = torch.log(center_dist + 1e-8).view(1, -1)
     center_norm = (center / center.max()).to(device)
 
-    print(">>> STEP 1: predizioni vs GT (4 esempi)")
+    print(">>> STEP 1: predictions vs GT (4 samples)")
     with torch.no_grad():
         imgs, sals, fix = next(iter(val_loader))
         imgs = imgs.to(device)
@@ -150,6 +149,7 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
         fix = fix.to(device)
         pred, _ = predict(imgs)
 
+    # standard imagenet reverse-normalization to visualize the raw images correctly in matplotlib
     mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
     std  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
 
@@ -165,7 +165,7 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
     saved_plots.mkdir(parents=True, exist_ok=True)
     plt.tight_layout(); plt.savefig(saved_plots / 'center_baseline.png'); plt.close()
 
-    print("\n>>> STEP 2+3: metriche su val set completo")
+    print("\n>>> STEP 2+3: metrics on complete val set")
 
     kl_model_all, cc_model_all, nss_model_all = [], [], []
     kl_center_all, cc_center_all, nss_center_all = [], [], []
@@ -193,6 +193,7 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
             nss_m = nss_metric(pred, fix)
             nss_model_all.append(nss_m.cpu().numpy())
 
+            # expand the static center prior to match batch size so we can pass it through the same batched metrics
             log_center_b = log_center.expand(B, -1)
             kl_c = F.kl_div(log_center_b, targ_norm, reduction='batchmean')
             kl_center_all.append(kl_c.item())
@@ -211,23 +212,23 @@ def compare_to_center_baseline(image_encoder, image_decoder, device, val_loader)
     nss_model = np.mean(nss_model_all)
     nss_center = np.mean(nss_center_all)
 
-    print(f"\n  KL  modello       : {kl_model:.4f}")
+    print(f"\n  KL  model       : {kl_model:.4f}")
     print(f"  KL  center prior  : {kl_center:.4f}")
-    print(f"  -> il modello batte il center prior di {kl_center - kl_model:+.4f} (più alto = meglio)")
+    print(f"  -> model beats center prior by {kl_center - kl_model:+.4f} (higher = better)")
     print()
-    print(f"  CC  modello       : {cc_model:.4f}")
+    print(f"  CC  model       : {cc_model:.4f}")
     print(f"  CC  center prior  : {cc_center:.4f}")
-    print(f"  -> il modello batte il center prior di {cc_model - cc_center:+.4f} (più alto = meglio)")
+    print(f"  -> model beats center prior by {cc_model - cc_center:+.4f} (higher = better)")
     print()
-    print(f"  NSS modello       : {nss_model:.4f}")
+    print(f"  NSS model       : {nss_model:.4f}")
     print(f"  NSS center prior  : {nss_center:.4f}")
-    print(f"  -> il modello batte il center prior di {nss_model - nss_center:+.4f} (più alto = meglio)")
+    print(f"  -> model beats center prior by {nss_model - nss_center:+.4f} (higher = better)")
     print()
-    print("Interpretazione rapida:")
-    print("  - se KL_model è MOLTO vicino a KL_center -> il modello ha imparato poco oltre il bias centrale")
-    print("  - se CC_model > 0.7 sei in territorio decente per ResNet18 baseline")
-    print("  - se CC_model ~ CC_center -> il modello non sta imparando")
-    print("  - NSS alto indica che le attivazioni di picco cadono esattamente sulle fixations umane reali")
+    print("Quick interpretation:")
+    print("  - if KL_model is VERY close to KL_center -> model learned little beyond central bias")
+    print("  - if CC_model > 0.7 you are in decent territory for ResNet18 baseline")
+    print("  - if CC_model ~ CC_center -> model is not learning")
+    print("  - high NSS indicates peak activations fall exactly on real human fixations")
 
     return {
         "kl_model": kl_model, "kl_center": kl_center,

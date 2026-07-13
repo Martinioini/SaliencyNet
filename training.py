@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('Agg')  # backend non interattivo: plt.show() bloccherebbe lo script
+matplotlib.use('Agg')  # non-interactive backend: plt.show() would block the script when running headless
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -7,7 +7,8 @@ from pathlib import Path
 from models import *
 
 
-# Training function, if phase1 the encoder is frozen
+# Training function. When encoder_frozen is True, we place the encoder and attention in eval mode
+# to lock their Batch Normalization statistics and disable dropout, preserving the pretrained features.
 def train_epoch(encoder, decoder, attention, device, dataloader, loss_fn, optimizer, encoder_frozen=False):
     if encoder_frozen:
         encoder.eval()
@@ -37,7 +38,7 @@ def train_epoch(encoder, decoder, attention, device, dataloader, loss_fn, optimi
     losses = np.mean(losses)
     return losses
 
-#testing function, gradients are not kept and both models are in evak mode
+#testing function, gradients are not kept and both models are in eval mode
 def test_epoch(encoder, decoder, attention, device, dataloader, loss_fn):
     encoder.eval()
     decoder.eval()
@@ -60,7 +61,8 @@ def test_epoch(encoder, decoder, attention, device, dataloader, loss_fn):
 
     return np.mean(val_losses)
 
-#Phase 1: The encder is frozen, only a few epochs of training are done
+# Phase 1: Train the decoder alone with a frozen encoder. This warms up the decoder weights
+# without exposing the pretrained backbone to the noisy gradients of a randomly initialized decoder.
 def run_phase1(image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim1,
                train_loss_history, val_loss_history, use_attention, use_skip, model_name="model", num_epochs=5, patience=3):
     bad = 0
@@ -75,7 +77,7 @@ def run_phase1(image_encoder, image_decoder, image_attention, device, train_load
 
     for epoch in range(num_epochs):
         print('EPOCH %d/%d' % (epoch + 1, num_epochs))
-        ### Training
+        # Training (use the testing function)
         train_loss = train_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -87,7 +89,7 @@ def run_phase1(image_encoder, image_decoder, image_attention, device, train_load
             encoder_frozen=True)
         print(f'TRAIN - EPOCH {epoch+1}/{num_epochs} - loss: {train_loss}')
 
-        ### Validation
+        # Validation (use the testing function)
         val_loss = test_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -125,7 +127,8 @@ def run_phase1(image_encoder, image_decoder, image_attention, device, train_load
             if bad == patience:
                 break
 
-#Phase 2: The whole network is used
+# Phase 2: Fine-tune the entire network jointly. We unfreeze the backbone and train
+# all parameters using differential learning rates since different layers need to move different amounts.
 def run_phase2(image_encoder, image_decoder, image_attention, device, train_loader, val_loader, loss_fn, optim, scheduler,
                train_loss_history, val_loss_history, use_attention, use_skip, model_name="model", num_epochs=50, patience=3):
     
@@ -147,7 +150,7 @@ def run_phase2(image_encoder, image_decoder, image_attention, device, train_load
 
     for epoch in range(num_epochs):
         print('EPOCH %d/%d' % (epoch + 1, num_epochs))
-        ### Training (use the training function)
+        # Training (use the training function)
         train_loss = train_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -158,7 +161,7 @@ def run_phase2(image_encoder, image_decoder, image_attention, device, train_load
             optimizer=optim)
         print(f'TRAIN - EPOCH {epoch+1}/{num_epochs} - loss: {train_loss}')
 
-        ### Validation  (use the testing function)
+        # Validation (use the testing function)
         val_loss = test_epoch(
             encoder=image_encoder,
             decoder=image_decoder,

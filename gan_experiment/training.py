@@ -3,13 +3,12 @@ import torch.nn.functional as F
 import matplotlib
 from metrics import cc_metric
 from models import decoder, discriminator, encoder
-matplotlib.use('Agg')  # backend non interattivo: plt.show() bloccherebbe lo script
+matplotlib.use('Agg')  # non-interactive backend so plt.show() doesn't block
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
 
-# Training function, if phase1 the encoder is frozen
 def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encoder_frozen=False):
     if encoder_frozen:
         encoder.eval()
@@ -36,7 +35,6 @@ def train_epoch(encoder, decoder, device, dataloader, loss_fn, optimizer, encode
     losses = np.mean(losses)
     return losses
 
-#testing function, gradients are not kept and both models are in evak mode
 def test_epoch(encoder, decoder, device, dataloader, loss_fn):
     encoder.eval()
     decoder.eval()
@@ -56,7 +54,7 @@ def test_epoch(encoder, decoder, device, dataloader, loss_fn):
 
     return np.mean(val_losses)
 
-#Phase 1: The encoder is frozen, only a few epochs of training are done
+# phase 1: freeze pretrained encoder, train decoder alone so random gradients don't wreck pretrained features.
 def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim1,
                train_loss_history, val_loss_history, num_epochs=5, patience=3):
     bad = 0
@@ -72,7 +70,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
 
     for epoch in range(num_epochs):
         print('EPOCH %d/%d' % (epoch + 1, num_epochs))
-        ### Training
+        # Training
         train_loss = train_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -83,7 +81,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
             encoder_frozen=True)
         print(f'TRAIN - EPOCH {epoch+1}/{num_epochs} - loss: {train_loss}')
 
-        ### Validation
+        # Validation
         val_loss = test_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -91,7 +89,6 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
             dataloader=val_loader,
             loss_fn=loss_fn)
 
-        # Print Validation curves
         print(f'VALIDATION - EPOCH {epoch+1}/{num_epochs} - loss: {val_loss}\n')
         train_loss_history.append(train_loss)
         val_loss_history.append(val_loss)
@@ -108,7 +105,7 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
         plt.savefig(path_graph)
         plt.close()
 
-        #early stopping and saving of the best model
+        # early stopping
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
@@ -119,19 +116,18 @@ def run_phase1(image_encoder, image_decoder, device, train_loader, val_loader, l
             if bad == patience:
                 break 
 
-#Phase 2: The whole network is used
+# phase 2: unfreeze everything. different parts need different learning rates.
 def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, loss_fn, optim, scheduler,
                train_loss_history, val_loss_history, num_epochs=50, patience=3):
     bad = 0
     best_val_error = float('inf')
-    #load the best model from phase 1
+    # load best phase 1 model
     model = torch.load(Path.cwd() / 'models' / 'phase1.pt', map_location=device, weights_only=False)
     image_encoder.load_state_dict(model['encoder'])
     image_decoder.load_state_dict(model['decoder'])
     image_encoder.train()
     image_decoder.train()
 
-    #unfreeze the encoder and train on the whole net
     for p in image_encoder.parameters():
         p.requires_grad = True
     saved_models = Path.cwd() / "models"
@@ -141,7 +137,7 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
 
     for epoch in range(num_epochs):
         print('EPOCH %d/%d' % (epoch + 1, num_epochs))
-        ### Training (use the training function)
+        # Training
         train_loss = train_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -151,7 +147,7 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
             optimizer=optim)
         print(f'TRAIN - EPOCH {epoch+1}/{num_epochs} - loss: {train_loss}')
 
-        ### Validation  (use the testing function)
+        # Validation
         val_loss = test_epoch(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -161,7 +157,6 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
 
         scheduler.step(val_loss)
 
-        # Print Validation curves
         print(f'VALIDATION - EPOCH {epoch+1}/{num_epochs} - loss: {val_loss}\n')
         train_loss_history.append(train_loss)
         val_loss_history.append(val_loss)
@@ -178,7 +173,7 @@ def run_phase2(image_encoder, image_decoder, device, train_loader, val_loader, l
         plt.savefig(path_graph)
         plt.close()
 
-        #early stopping and saving of the best model
+        # early stopping
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
@@ -260,7 +255,7 @@ def discriminator_testing(encoder, decoder, discriminator, device, dataloader, l
 
 
 
-#Phase 3: The generator is frozen, discriminator is trained for a few epochs (warm-up)
+# phase 3: discriminator warm-up. freeze generator, train discriminator.
 def run_phase3(image_encoder, image_decoder, discriminator, device, train_loader, val_loader, loss_fn, optim,
                train_loss_history, val_loss_history, num_epochs=5, patience=3):
     bad = 0
@@ -276,7 +271,7 @@ def run_phase3(image_encoder, image_decoder, discriminator, device, train_loader
 
     for epoch in range(num_epochs):
         print('EPOCH %d/%d' % (epoch + 1, num_epochs))
-        ### Training
+        # Training
         train_loss = discriminator_training(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -287,7 +282,7 @@ def run_phase3(image_encoder, image_decoder, discriminator, device, train_loader
             optimizer=optim)
         print(f'TRAIN - EPOCH {epoch+1}/{num_epochs} - loss: {train_loss}')
 
-        ### Validation
+        # Validation
         val_loss = discriminator_testing(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -296,7 +291,6 @@ def run_phase3(image_encoder, image_decoder, discriminator, device, train_loader
             dataloader=val_loader,
             loss_fn=loss_fn)
 
-        # Print Validation curves
         print(f'VALIDATION - EPOCH {epoch+1}/{num_epochs} - loss: {val_loss}\n')
         train_loss_history.append(train_loss)
         val_loss_history.append(val_loss)
@@ -313,7 +307,7 @@ def run_phase3(image_encoder, image_decoder, discriminator, device, train_loader
         plt.savefig(path_graph)
         plt.close()
 
-        #early stopping and saving of the best model
+        # early stopping
         if best_val_error > val_loss:
             best_val_error = val_loss
             bad = 0
@@ -330,24 +324,23 @@ def adversarial_training(encoder, decoder, discriminator, device, dataloader, lo
     
     losses_discriminator = []
     losses_generator = []
-    #just to be sure, since adversarial training is done after phase 3 (discriminiator warm-up), the encoder and decoder should be unfrozen
+    # unfreeze everything for adversarial training
     for p in encoder.parameters():       p.requires_grad = True
     for p in decoder.parameters():       p.requires_grad = True
     for p in discriminator.parameters(): p.requires_grad = True
     
-    #changed both encoder and decoder to train mode (before they were both on eval).
     encoder.train()
     decoder.train()
     discriminator.train()
 
     for image_batch, image_map_batch, image_fix_batch in dataloader:
         
-        #Discriminator step: generator is frozen, discriminator is trained to distinguish between real and fake samples
+        # discriminator step: generator is frozen (via detach), discriminator trained to distinguish real/fake
         image_batch = image_batch.to(device)
         image_map_batch = image_map_batch.to(device)
 
         c1, c2, c3, c4 = encoder(image_batch)
-        #added sigmoid here
+        # apply sigmoid since decoder outputs raw logits, but discriminator needs [0,1]
         logits = decoder(c1, c2, c3, c4).detach()
         fake_image_batch = torch.sigmoid(logits)
 
@@ -360,19 +353,18 @@ def adversarial_training(encoder, decoder, discriminator, device, dataloader, lo
         optimizer_discriminator.step()
         losses_discriminator.append(loss_discriminator.detach().cpu().numpy())
 
-        #Generator step: discriminator is frozen, generator is trained to fool the discriminator
+        # generator step
         c1, c2, c3, c4 = encoder(image_batch)
-        #added sigmoid here
+        # apply sigmoid
         logits = decoder(c1, c2, c3, c4)
         fake_image_batch = torch.sigmoid(logits)
 
         fake_data = discriminator(image_batch, fake_image_batch)
+        # alpha balances the structural saliency loss vs the adversarial loss.
         loss_generator = alpha * loss_fn(fake_image_batch, image_map_batch) + loss_fn(fake_data, torch.ones_like(fake_data))
 
         optimizer_generator.zero_grad()
         loss_generator.backward()
-        #when this code will run we should see a number > 0, otherwise there is probably a 'detach' somwehere preventing the gradients to flow back.
-        #print(encoder.layer4[0].conv1.weight.grad.norm())
         optimizer_generator.step()
         losses_generator.append(loss_generator.detach().cpu().numpy())
         
@@ -425,7 +417,7 @@ def adversarial_testing(encoder, decoder, discriminator, device, dataloader, los
     print(f"True positive accuracy = {true_positive / total} False positive: {false_positive/ total}")
     return np.mean(cc), np.mean(losses_generator), np.mean(losses_discriminator)
 
-#Phase 4: Both the generator and discriminator are trained in an adversarial way, for a few epochs
+# phase 4: full adversarial training
 def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader, val_loader, loss_fn, optim_generator, optim_discriminator,
                train_loss_history_generator, train_loss_history_discriminator, val_loss_history_generator, val_loss_history_discriminator, num_epochs=5, patience=3):
     bad = 0
@@ -439,7 +431,7 @@ def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader
 
     for epoch in range(num_epochs):
         print('EPOCH %d/%d' % (epoch + 1, num_epochs))
-        ### Training
+        # Training
         train_loss_generator, train_loss_discriminator = adversarial_training(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -451,7 +443,7 @@ def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader
             optimizer_discriminator=optim_discriminator)
         print(f'TRAIN - EPOCH {epoch+1}/{num_epochs} - generator loss: {train_loss_generator} - discriminator loss: {train_loss_discriminator}')
 
-        ### Validation
+        # Validation
         val_cc, val_loss_generator, val_loss_discriminator = adversarial_testing(
             encoder=image_encoder,
             decoder=image_decoder,
@@ -460,7 +452,6 @@ def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader
             dataloader=val_loader,
             loss_fn=loss_fn)
 
-        # Print Validation curves
         print(f'VALIDATION - EPOCH {epoch+1}/{num_epochs} - CC: {val_cc} - generator loss: {val_loss_generator} - discriminator loss: {val_loss_discriminator}\n')
         train_loss_history_generator.append(train_loss_generator)
         val_loss_history_generator.append(val_loss_generator)
@@ -479,7 +470,7 @@ def run_phase4(image_encoder, image_decoder, discriminator, device, train_loader
         plt.savefig(path_graph)
         plt.close()
 
-        #early stopping and saving of the best model
+        # early stopping
         if val_cc > best_cc_error:
             best_cc_error = val_cc
             bad = 0

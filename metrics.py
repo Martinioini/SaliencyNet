@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('Agg')  # backend non interattivo: plt.show() bloccherebbe lo script
+matplotlib.use('Agg')  # non-interactive backend
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -7,7 +7,6 @@ import torch.nn.functional as F
 from pathlib import Path
 import random
 
-#Pearson correlation between pred and target, per image
 def cc_metric(pred, target, eps=1e-8):
 
     B = pred.size(0)
@@ -20,10 +19,9 @@ def cc_metric(pred, target, eps=1e-8):
     num = (p * t).sum(dim=1)
     den = torch.sqrt((p * p).sum(dim=1) * (t * t).sum(dim=1) + eps)
 
-    return (num / den)  # per-sample, mediato fuori
+    return (num / den)  # per-sample, averaged outside
 
 
-#Histogram intersection between the two distributions, per image
 def sim_metric(pred, ground_truth, eps=1e-8):
 
     pred = pred.float()
@@ -42,10 +40,10 @@ def sim_metric(pred, ground_truth, eps=1e-8):
     minimum = torch.minimum(pred_normalized, ground_normalized)
     sim_per_image = minimum.sum(dim=1)
 
-    return sim_per_image  # per-sample, mediato fuori
+    return sim_per_image  # per-sample, averaged outside
 
 
-#KL divergence, takes raw logits and does its own log_softmax
+# kl divergence applies its own log_softmax to raw logits
 def kl_metric(pred, ground_truth, eps=1e-8):
 
     pred = pred.float()
@@ -61,7 +59,7 @@ def kl_metric(pred, ground_truth, eps=1e-8):
     return F.kl_div(log_pred, targ, reduction='batchmean')
 
 
-#Normalized Scanpath Saliency, uses the fixation map instead of the continuous one
+# nss is the only metric evaluated against the binary fixation map instead of the continuous density map
 def nss_metric(pred, fixation_map, eps=1e-8):
 
     pred = pred.float()
@@ -79,23 +77,21 @@ def nss_metric(pred, fixation_map, eps=1e-8):
 
     nss = pred_flatten.sum(dim=1) / (fix_flatten.sum(dim=1) + eps)
 
-    return nss  # per-sample, mediato fuori
+    return nss  # per-sample, averaged outside
 
 
 def evaluate_loader(image_encoder, image_decoder, image_attention, device, loader, label):
-    #Metrics setup: load saved best model (caller loads the checkpoint beforehand)
+    # load saved best model
 
-    # accumulo la SOMMA per-campione di ogni metrica e divido per il numero
-    # totale di campioni alla fine: cosi' l'ultimo batch (piu' piccolo con
-    # drop_last=False) pesa in proporzione al numero di immagini, non uguale
-    # a un batch pieno.
+    # accumulate per-sample sums and divide by total samples at the end.
+    # ensures the last batch (smaller) is weighted correctly.
     sim_sum = 0.0
     cc_sum = 0.0
     nss_sum = 0.0
     kl_sum = 0.0
     n_total = 0
 
-    #Metrics over the given loader:
+    # metrics over the given loader:
     with torch.no_grad():
 
         for image_batch, image_map_batch, image_fix_batch in loader:
@@ -111,6 +107,7 @@ def evaluate_loader(image_encoder, image_decoder, image_attention, device, loade
                 B = image_batch.shape[0]
 
                 flattened_decoded_data = decoded_data.view(B, -1)
+                # apply softmax over the flattened map because network outputs raw logits
                 log_decoded_data = F.softmax(flattened_decoded_data, dim=1)
                 normalized_decoded_data = log_decoded_data.view_as(decoded_data)
                 cc_norm_decoded_data = normalized_decoded_data / (normalized_decoded_data.amax(dim=(2, 3), keepdim=True) + 1e-8)
@@ -118,7 +115,7 @@ def evaluate_loader(image_encoder, image_decoder, image_attention, device, loade
                 sim_sum += sim_metric(normalized_decoded_data, image_map_batch).sum().item()
                 cc_sum += cc_metric(cc_norm_decoded_data, image_map_batch).sum().item()
                 nss_sum += nss_metric(normalized_decoded_data, image_fix_batch).sum().item()
-                # KL e' batchmean: rimoltiplico per B per recuperare la somma
+                # kl is batchmean: multiply by B to recover sum
                 kl_sum += kl_metric(decoded_data, image_map_batch).item() * B
                 n_total += B
 
@@ -147,7 +144,7 @@ def compare_to_center_baseline(image_encoder, image_decoder, image_attention, de
     image_decoder.eval()
     image_attention.eval()
 
-    # Center prior setup
+    # center prior setup
     H = W = 256
     yy, xx = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
     center = torch.exp(-((yy - H/2)**2 + (xx - W/2)**2) / (2 * (H/4)**2)).float().to(device)
@@ -155,7 +152,7 @@ def compare_to_center_baseline(image_encoder, image_decoder, image_attention, de
     center_norm = (center / (center.amax() + 1e-8)).view(1, 1, H, W)
     center_logits = torch.log(center / center.sum() + 1e-8).view(1, 1, H, W)
 
-    # somme per-campione (stessa aggregazione di evaluate_loader)
+    # per-sample sums
     m_cc_sum = m_nss_sum = m_kl_sum = 0.0
     c_cc_sum = c_nss_sum = c_kl_sum = 0.0
     n_total = 0

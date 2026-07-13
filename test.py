@@ -1,29 +1,29 @@
 import argparse
 import torch
 
-# path di default coerente col nuovo schema di naming (define_model_path in training.py)
+# default path consistent with define_model_path
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", default="models/best_model_50_att_skip.pt",
-                    help="Checkpoint da ispezionare (default: resnet50 con attention e skip)")
+                    help="checkpoint to inspect")
 args = parser.parse_args()
 
 ckpt = torch.load(args.model, map_location='cpu', weights_only=False)
-att = ckpt['attention']   # ora l'attention è un modulo separato
+att = ckpt['attention']
 
 print(f"checkpoint: {args.model}")
-print("chiavi attention:", list(att.keys()))
+print("attention keys:", list(att.keys()))
 print()
 
-# IL numero che conta: gamma. Se ~0, l'attention è spenta.
+# gamma matters. if roughly 0, attention is switched off by the network.
 if 'gamma_c3' in att:
     print(f">>> GAMMA C3 = {att['gamma_c3'].item():.6f}")
-    print("    (se ~0 l'attention e' spenta; se cresciuto, e' attiva)\n")
+    print("    (if ~0 attention is off; if grown, it is active)\n")
 
 if 'gamma_c4' in att:
     print(f">>> GAMMA C4 = {att['gamma_c4'].item():.6f}")
-    print("    (se ~0 l'attention e' spenta; se cresciuto, e' attiva)\n")
+    print("    (if ~0 attention is off; if grown, it is active)\n")
 
-# statistiche dei pesi dell'attention
+# attention weights stats
 for k in att:
     w = att[k]
     if w.numel() > 1:

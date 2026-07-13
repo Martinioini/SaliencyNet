@@ -14,7 +14,7 @@ from metrics import evaluate_loader, compare_to_center_baseline
 ROOT = './datasets/salicon'
 BATCH_SIZE = 16
 NUM_WORKERS = 8
-PIN_MEMORY = True  # ATTENZIONE: IN LOCALE SU GPU METTI pin_memory = True
+PIN_MEMORY = True  # warning: locally on gpu set pin_memory = True
 
 PHASE1_LR = 1e-3
 PHASE1_WEIGHT_DECAY = 1e-5
@@ -46,7 +46,7 @@ SCHEDULER_MIN_LR = 1e-7
  
 def main():
     
-    #By default run all the training, else:
+    # default run all training. phases are sequential and depend on checkpoints from previous phases.
     run_type = 0
     if len(sys.argv) == 2:
         run_type = int(sys.argv[1])
@@ -87,13 +87,15 @@ def main():
     discr.to(device)
 
     loss_fn = SaliencyKLLoss()
+    # BCE is standard for discriminator real/fake binary classification
     BCE_loss_fn = torch.nn.BCELoss()
 
     train_loss_history = []
     val_loss_history = []
 
     if run_type == 1 or run_type == 2 or run_type == 0:
-        # --- Phase 1: encoder frozen, decoder only ---
+        # phase 1: encoder frozen, decoder only
+        # only pass decoder parameters so encoder remains frozen
         params_to_optimize1 = [
             {'params': image_decoder.parameters(), 'lr': PHASE1_LR}
         ]
@@ -105,7 +107,7 @@ def main():
             train_loss_history, val_loss_history,
             num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
 
-        # --- Phase 2: whole network, differential LR ---
+        # phase 2: whole network, differential LR
         params_to_optimize = [
             {'params': image_encoder.parameters(), 'lr': PHASE2_ENCODER_LR},
             {'params': image_decoder.parameters(), 'lr': PHASE2_DECODER_LR},
@@ -124,7 +126,7 @@ def main():
 
     if run_type == 3 or run_type == 0: 
 
-        # --- Phase 3: train discriminator ---
+        # phase 3: train discriminator
         ckpt = torch.load('models/phase2.pt', map_location=device, weights_only=False)
         image_encoder.load_state_dict(ckpt['encoder'])
         image_decoder.load_state_dict(ckpt['decoder'])
@@ -146,7 +148,8 @@ def main():
 
     if run_type == 4 or run_type == 0:
 
-        # --- Phase 4: Adversarial training ---
+        # phase 4: adversarial training
+        # load phase 2 (best saliency generator) and phase 3 (warm discriminator) as starting point
         ckpt1 = torch.load('models/phase2.pt', map_location=device, weights_only=False)
         image_encoder.load_state_dict(ckpt1['encoder'])
         image_decoder.load_state_dict(ckpt1['decoder'])
@@ -180,7 +183,7 @@ def main():
             num_epochs=PHASE4_EPOCHS, patience=PHASE4_PATIENCE
         )
         
-        # --- Metrics on best model (best encoder/decoder = phase2) ---
+        # metrics on best model
         ckpt = torch.load(Path.cwd() / 'models' / 'phase4.pt', map_location=device, weights_only=False)
         image_encoder.load_state_dict(ckpt['encoder'])
         image_decoder.load_state_dict(ckpt['decoder'])

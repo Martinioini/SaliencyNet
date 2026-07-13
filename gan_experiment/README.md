@@ -1,36 +1,30 @@
-# Esperimento GAN (SalGAN adversarial) — ABBANDONATO
+# GAN Experiment (SalGAN adversarial) — ABANDONED
 
-Tentativo di training avversario (stile SalGAN) sopra il modello encoder-decoder:
-fasi 3-4 (warmup discriminatore + training congiunto). Ha richiesto di convertire
-tutto il regime da **KL loss** a **BCE + sigmoide nel decoder**.
+Attempt at adversarial training (SalGAN style) on top of the encoder-decoder model:
+phases 3-4 (discriminator warmup + joint training). It requires transitioning from the 
+**KL loss** (used in phases 1-2 to pretrain the saliency generator) to a **BCE loss** 
+for the adversarial steps, where a sigmoid is applied to the generator's raw logits.
 
-**Esito:** il discriminatore non riesce a separare le mappe generate da quelle reali
-(stallo a ~0.5). Approccio abbandonato; il flusso principale (nella root del repo) è
-tornato al regime **KL puro**, sole fasi 1-2 (CC ~0.88).
+**Result:** the discriminator fails to separate the generated maps from the real ones 
+(stalling at ~0.5 accuracy). The approach was abandoned; the main pipeline (in the repo root) 
+has reverted to the **pure KL** regime, running only phases 1-2 (CC ~0.88).
 
-Questa cartella è uno **snapshot completo e autoconsistente** del regime GAN, estratto
-dal commit `f77e861` (== `origin/main` al momento del rollback).
+This folder serves as a **complete, self-contained snapshot** of the GAN regime.
 
-## Contenuto
+## Contents
 
-- **`models.py`** — `encoder`, `decoder` (con `sigmoid` finale → output in [0,1]) e la classe
-  **`discriminator`**.
-- **`training.py`** — oltre a `train_epoch`/`test_epoch`/`run_phase1`/`run_phase2`:
-  - `denormalize` (riporta l'immagine ImageNet in [0,1] per il discriminatore)
+- **`models.py`** — `encoder`, `decoder` (outputs raw logits), and the **`discriminator`** class.
+- **`training.py`** — contains:
+  - `train_epoch`, `test_epoch`
+  - `run_phase1`, `run_phase2` (KL loss pretraining)
   - `discriminator_training`, `discriminator_testing`
-  - `run_phase3` (warmup discriminatore, generatore congelato)
+  - `run_phase3` (discriminator warmup, generator frozen)
   - `adversarial_training`, `adversarial_testing`
-  - `run_phase4` (training congiunto avversario)
-- **`main.py`** — orchestrazione di tutte le fasi 1-4 (regime BCE), con gli iperparametri
-  `PHASE3_*` / `PHASE4_*`. Invocare con `run_type` 3 o 4 per le sole fasi GAN.
-- **`metrics.py`** — `evaluate_loader` in regime BCE (l'output è già [0,1], niente softmax).
-- **`overfit_one_batch.py`** — diagnostica: il discriminatore riesce a overfittare un singolo batch?
-- **`phase4_no_warmup.py`** — traiettoria della CC di validation in fase 4 senza warmup del discriminatore.
+  - `run_phase4` (joint adversarial training with BCE and generator alpha balancing)
+- **`main.py`** — orchestrates all phases 1-4, defining hyperparameters for `PHASE3_*` / `PHASE4_*`. Run with argument `3` or `4` to execute only the GAN phases.
+- **`metrics.py`** — handles evaluations (`SIM`, `CC`, `NSS`, `KL`) over the batches and visualizes the center prior baseline comparison.
 
-## Note
+## Notes
 
-- I file qui sono una **copia archiviata**: importano tra loro (`from models import ...`,
-  `from training import ...`) e dipendono da `dataset.py` nella root del repo.
-- Il flusso principale nella root NON contiene più nulla di GAN: `models.py` emette logit
-  grezzi (niente sigmoide), `training.py` ha solo fasi 1-2 KL, `main.py` usa `SaliencyKLLoss`.
-- Riferimento storico completo: `git show f77e861:<file>`.
+- The files here are an **archived copy**: they import from each other (`from models import ...`, `from training import ...`) but depend on the shared `dataset.py` and `losses.py` in the repo root.
+- The main pipeline in the root NO LONGER contains any GAN logic: it purely uses KL divergence for phases 1-2.

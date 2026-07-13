@@ -12,17 +12,19 @@ from training import *
 from metrics import evaluate_loader, compare_to_center_baseline
 import argparse
 
-# --- config (stessi valori usati nel notebook) ---
+# config (same values used in notebook)
 ROOT = './datasets/salicon'
 BATCH_SIZE = 16
 NUM_WORKERS = 8
-PIN_MEMORY = True  # ATTENZIONE: IN LOCALE SU GPU METTI pin_memory = True
+PIN_MEMORY = True  # warning: locally on gpu set pin_memory = True
 
 PHASE1_LR = 1e-3
 PHASE1_WEIGHT_DECAY = 1e-5
 PHASE1_EPOCHS = 6
 PHASE1_PATIENCE = 3
 
+# differential learning rates: each block needs to move a different amount.
+# encoder is pretrained (1e-5), attention is completely random and needs higher LR (1e-3).
 PHASE2_ENCODER_LR = 1e-5
 PHASE2_DECODER_LR = 1e-4
 PHASE2_ATTENTION_LR = 1e-3
@@ -36,6 +38,7 @@ SCHEDULER_MIN_LR = 1e-7
 
 def main():
 
+    # ablation model flags. combinations of backbone, no_skip, no_attention define the 4 models
     parser = argparse.ArgumentParser()
     parser.add_argument("--backbone", default="resnet50", choices=["resnet18", "resnet50"], help="Backbone model to use")
     parser.add_argument("--run_type", default="train", choices=["train", "test"], help="Run type: train or test")
@@ -50,7 +53,7 @@ def main():
 
     
     print(f"Using backbone: {backbone_type}, Skip connections: {use_skip}, Attention: {use_attention}")
-    
+    # fix seeds for reproducibility across the 4 ablation models
     SEED = 42
     random.seed(SEED)
     np.random.seed(SEED)
@@ -71,6 +74,7 @@ def main():
     val_ds = ImageDataset(image_paths_val, map_paths_val, fix_paths_val, train=False)
     test_ds = ImageDataset(image_paths_test, map_paths_test, fix_paths_test, train=False)
 
+    # drop_last=True on train to avoid batchnorm crashing on tiny last batches
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY, drop_last=True)
     val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY, drop_last=False)
     test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY, drop_last=False)
@@ -79,6 +83,7 @@ def main():
     print(f'Selected device: {device}')
 
     if backbone_type == "resnet50":
+        # separate modules so we can apply differential learning rates in phase 2
         image_encoder = encoder50()
         image_decoder = decoder50(use_skip=use_skip)
         image_attention = attention50(use_attention=use_attention)
@@ -99,6 +104,7 @@ def main():
         val_loss_history = []
 
         # --- Phase 1: encoder frozen, decoder only ---
+        # only pass decoder parameters to optimizer so encoder remains strictly frozen
         params_to_optimize1 = [
             {'params': image_decoder.parameters(), 'lr': PHASE1_LR}
         ]
@@ -109,14 +115,14 @@ def main():
             train_loss_history, val_loss_history, use_attention=use_attention, use_skip=use_skip,
             num_epochs=PHASE1_EPOCHS, patience=PHASE1_PATIENCE)
 
-        # carica il best della fase 1 prima di sbloccare l'encoder (l'ultima epoca puo' essere peggiore)
+        # load best phase 1 model before unfreezing encoder (last epoch might be worse)
         phase1_ckpt_path = define_model_path(image_encoder, use_skip, use_attention)
         ckpt1 = torch.load(phase1_ckpt_path, map_location=device, weights_only=False)
         image_encoder.load_state_dict(ckpt1['encoder'])
         image_decoder.load_state_dict(ckpt1['decoder'])
         image_attention.load_state_dict(ckpt1['attention'])
 
-        # --- Phase 2: whole network, differential LR ---
+        # --- phase 2: whole network, differential LR ---
         params_to_optimize = [
             {'params': image_encoder.parameters(), 'lr': PHASE2_ENCODER_LR},
             {'params': image_decoder.parameters(), 'lr': PHASE2_DECODER_LR},
@@ -133,7 +139,7 @@ def main():
             train_loss_history, val_loss_history, use_attention=use_attention, use_skip=use_skip,
             num_epochs=PHASE2_EPOCHS, patience=PHASE2_PATIENCE)
 
-    # Metrics on best.pt
+    # metrics on best model
     ckpt_path = define_model_path(image_encoder, use_skip, use_attention)
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
