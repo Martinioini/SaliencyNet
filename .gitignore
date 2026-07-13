@@ -7,9 +7,5 @@ plots/
 __pycache__/
 .ipynb_checkpoints/
 
-# Impostazioni locali Claude Code
-.claude/settings.local.json
-.claude/*.tmp.*
-
 # Modelli / checkpoint
 *.pt
