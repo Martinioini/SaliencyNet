@@ -1,0 +1,8 @@
+# torch and torchvision are intentionally NOT listed here: the correct build
+# depends on the accelerator (ROCm / CUDA / CPU). Install them separately,
+# following https://pytorch.org/get-started/locally/ — see the README.
+
+numpy
+scipy        # reads the SALICON .mat fixation records
+pillow       # image loading
+matplotlib   # learning curves and qualitative panels

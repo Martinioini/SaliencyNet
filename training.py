@@ -1,3 +1,4 @@
+import csv
 import matplotlib
 matplotlib.use('Agg')  # non-interactive backend: plt.show() would block the script when running headless
 import matplotlib.pyplot as plt
@@ -5,6 +6,13 @@ import numpy as np
 import torch
 from pathlib import Path
 from models import *
+
+CURVE_LABELS = {
+    'resnet18_noskip_noatt': 'Base',
+    'resnet18_skip_noatt': '+skip',
+    'resnet18_skip_att': '+attention',
+    'resnet50_skip_att': '+ResNet50',
+}
 
 
 # Training function. When encoder_frozen is True, we place the encoder and attention in eval mode
@@ -215,3 +223,44 @@ def define_model_path(image_encoder, use_skip, use_attention):
         return path / f'best_model_50_{attention}_{skip}.pt'
     elif isinstance(image_encoder, encoder18):
         return path / f'best_model_18_{attention}_{skip}.pt'
+
+# Overlays the validation curve of every completed run onto one figure for the paper.
+def plot_all_curves():
+    csv_paths = sorted(Path('plots').glob('*_curves.csv'))
+
+    fig, ax = plt.subplots(figsize=(3.5, 2.5))
+    plt.rcParams.update({'font.size': 8})
+
+    drawn_boundaries = set()
+
+    for csv_path in csv_paths:
+        tag = csv_path.stem[:-len('_curves')]
+
+        epochs, val_losses, phases = [], [], []
+        with open(csv_path, newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                epochs.append(int(row['epoch']))
+                val_losses.append(float(row['val_loss']))
+                phases.append(int(row['phase']))
+
+        if not epochs:
+            continue
+
+        label = CURVE_LABELS.get(tag, tag)
+        line, = ax.plot(epochs, val_losses, label=label, linewidth=1)
+
+        best_idx = int(np.argmin(val_losses))
+        ax.plot(epochs[best_idx], val_losses[best_idx], 'o', color=line.get_color(), markersize=3)
+
+        phase1_epochs = [e for e, p in zip(epochs, phases) if p == 1]
+        if phase1_epochs and phase1_epochs[-1] not in drawn_boundaries:
+            ax.axvline(x=phase1_epochs[-1], color='grey', linestyle='--', linewidth=0.8)
+            drawn_boundaries.add(phase1_epochs[-1])
+
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('KL Divergence Loss')
+    ax.legend(fontsize=6)
+    fig.tight_layout()
+    fig.savefig('plots/fig_curves.pdf')
+    plt.close(fig)
